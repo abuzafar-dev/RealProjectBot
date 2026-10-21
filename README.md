@@ -2,6 +2,13 @@
 
 Telegram uchun shaxsiy vazifalar (todo) boti. aiogram 3, SQLite, FSM va inline tugmalar ishlatilgan.
 
+## Quick start
+
+```bash
+make run     # creates .venv and .env, installs deps, starts the app
+make test    # checks + tests
+```
+
 ## Imkoniyatlar
 
 - `/start` — foydalanuvchini bazaga yozadi va menyu chiqaradi
