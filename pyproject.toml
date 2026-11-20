@@ -1,7 +1,7 @@
 [project]
 name = "realprojectbot"
-version = "1.0.0"
-description = "Telegram uchun shaxsiy vazifalar boti (aiogram 3 + SQLite)"
+version = "1.1.0"
+description = "Vaqti kelganda o'zi eslatadigan shaxsiy vazifalar boti (aiogram 3 + SQLite)"
 requires-python = ">=3.12"
 
 [tool.pytest.ini_options]

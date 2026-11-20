@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dotenv import load_dotenv
 
@@ -15,6 +16,8 @@ class Settings:
     bot_token: str
     db_path: str
     log_level: str
+    timezone: ZoneInfo
+    digest_hour: int
 
 
 def load_settings() -> Settings:
@@ -25,8 +28,20 @@ def load_settings() -> Settings:
             'BOT_TOKEN topilmadi. .env faylga @BotFather bergan tokenni yozing '
             '(namuna: .env.example).'
         )
+    tz_name = os.getenv('TIMEZONE', 'Asia/Tashkent')
+    try:
+        timezone = ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise ConfigError(f"TIMEZONE noto'g'ri: {tz_name!r} (masalan: Asia/Tashkent)") from None
+
+    hour = os.getenv('DIGEST_HOUR', '8')
+    if not hour.isdigit() or int(hour) > 23:
+        raise ConfigError(f"DIGEST_HOUR 0..23 oralig'ida bo'lishi kerak, berilgan: {hour!r}")
+
     return Settings(
         bot_token=token,
         db_path=os.getenv('DB_PATH', 'tasks.db'),
         log_level=os.getenv('LOG_LEVEL', 'INFO').upper(),
+        timezone=timezone,
+        digest_hour=int(hour),
     )

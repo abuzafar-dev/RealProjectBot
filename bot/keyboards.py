@@ -8,6 +8,9 @@ ADD_TASK = "➕ Vazifa qo'shish"
 MY_TASKS = '📋 Vazifalarim'
 STATS = '📊 Statistika'
 CANCEL = '❌ Bekor qilish'
+TODAY = 'Bugun'
+TOMORROW = 'Ertaga'
+NO_DUE = '⏭ Muddatsiz'
 
 main_menu = ReplyKeyboardMarkup(
     keyboard=[
@@ -23,6 +26,16 @@ cancel_menu = ReplyKeyboardMarkup(
 )
 
 
+due_menu = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text=TODAY), KeyboardButton(text=TOMORROW)],
+        [KeyboardButton(text=NO_DUE)],
+        [KeyboardButton(text=CANCEL)],
+    ],
+    resize_keyboard=True,
+)
+
+
 class TaskCallback(CallbackData, prefix='task'):
     action: str  # 'done' | 'delete'
     task_id: int
@@ -31,6 +44,16 @@ class TaskCallback(CallbackData, prefix='task'):
 
 class PageCallback(CallbackData, prefix='page'):
     page: int
+
+
+class RemindCallback(CallbackData, prefix='remind'):
+    task_id: int
+
+
+def remind_keyboard(task_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text='✅ Bajarildi', callback_data=RemindCallback(task_id=task_id))
+    return builder.as_markup()
 
 
 def tasks_keyboard(

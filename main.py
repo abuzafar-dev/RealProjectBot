@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import sys
 
@@ -9,9 +10,11 @@ from aiogram.exceptions import TelegramUnauthorizedError
 from aiogram.types import BotCommand
 from aiogram.utils.token import TokenValidationError
 
+from bot.clock import Clock
 from bot.config import ConfigError, load_settings
 from bot.database import Database
 from bot.handlers import get_router
+from bot.reminders import run_reminders
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +37,19 @@ async def main() -> None:
     logger.info('Baza ulandi: %s', settings.db_path)
 
     bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    # db handlerlarga argument sifatida avtomatik uzatiladi (dependency injection)
-    dp = Dispatcher(db=db)
+    clock = Clock(settings.timezone)
+    # db va clock handlerlarga argument sifatida avtomatik uzatiladi (dependency injection)
+    dp = Dispatcher(db=db, clock=clock)
     dp.include_router(get_router())
 
+    reminders = asyncio.create_task(run_reminders(bot, db, clock, settings.digest_hour))
     try:
         await bot.set_my_commands(COMMANDS)
         await dp.start_polling(bot)
     finally:
+        reminders.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await reminders
         await db.close()
         logger.info("Bot to'xtatildi")
 

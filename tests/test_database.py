@@ -1,3 +1,5 @@
+from datetime import date, time
+
 import aiosqlite
 import pytest
 
@@ -85,5 +87,8 @@ async def test_migrates_old_schema(tmp_path):
         task = (await database.get_tasks(1))[0]
         assert task.title == 'Eski vazifa'
         assert await database.mark_done(task.id, 1) is True
+        # yangi ustunlar qo'shilgan va ishlaydi
+        new_id = await database.add_task(1, 'Yangi', date(2026, 12, 1), time(9, 0))
+        assert (await database.get_task(new_id, 1)).due_time == time(9, 0)
     finally:
         await database.close()
