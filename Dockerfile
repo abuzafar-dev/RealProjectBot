@@ -1,13 +1,24 @@
 FROM python:3.12-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
+# Faqat production kutubxonalari (pytest, ruff image'ga tushmaydi)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 
-COPY . .
+# Root bo'lmagan foydalanuvchi va baza uchun papka
+RUN useradd --create-home --uid 1000 bot \
+    && mkdir -p /app/data \
+    && chown bot:bot /app/data
+
+COPY bot ./bot
+COPY main.py .
+
+USER bot
 
 CMD ["python", "main.py"]
