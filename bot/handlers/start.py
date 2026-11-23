@@ -24,6 +24,8 @@ HELP_TEXT = (
     '/start — bosh menyu\n'
     '/today — bugungi reja\n'
     '/settings — sozlamalar\n'
+    "/find so'z — vazifani qidirish\n"
+    '/export — barcha vazifalar CSV faylda\n'
     '/help — yordam\n'
     '/cancel — amalni bekor qilish\n\n'
     '<b>Qanday ishlaydi</b>\n'
@@ -34,11 +36,16 @@ HELP_TEXT = (
     'kechiktirish tugmalari bor\n'
     "3. Shoshilinch bo'lmasa — «☀️ Ertalabki rejada»: o'sha kuni ertalab ro'yxatda "
     "ko'rsataman. <code>ertaga 15:00</code> deb bir yo'la yozsangiz ham bo'ladi\n"
-    '4. <code>har kuni 09:00</code> yoki <code>har hafta</code> — 🔁 takrorlanuvchi vazifa: '
+    '4. <code>har kuni 09:00</code>, <code>har seshanba 08:30</code>, '
+    '<code>ish kunlari 07:00</code> — 🔁 takrorlanuvchi vazifa: '
     'bajarilganda keyingisi avtomatik yaratiladi\n'
     "5. 📋 Ro'yxatda raqamni bosing — vazifa kartasi: bajarildi, vaqt/nomni o'zgartirish, "
     "ertaga ko'chirish, o'chirish\n"
-    '6. ⚙️ Sozlamalar — ertalabki reja soati va har yakshanbagi 📈 haftalik hisobot'
+    '6. ⚙️ Sozlamalar — ertalabki reja soati, 🔔 oldindan ogohlantirish '
+    '(15 daq / 1 soat / 1 kun oldin) va har yakshanbagi 📈 haftalik hisobot\n'
+    "7. Kartada ⭐ Muhim — vazifa o'z bo'limida tepada turadi\n\n"
+    '<b>Muddat namunalari:</b> <code>ertaga 15:00</code>, <code>dushanba 10:00</code>, '
+    '<code>3 kundan keyin</code>, <code>30 daqiqadan keyin</code>, <code>25.11</code>'
 )
 
 

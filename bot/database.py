@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
     last_digest TEXT,               -- ertalabki reja oxirgi yuborilgan sana
     digest_hour INTEGER,            -- shaxsiy reja soati; NULL — umumiy (DIGEST_HOUR)
     weekly      INTEGER NOT NULL DEFAULT 1,  -- haftalik hisobot yoqilganmi
+    lead_minutes INTEGER,           -- necha daqiqa oldin ogohlantirish; NULL — o'chiq
     last_weekly TEXT                -- haftalik hisobot oxirgi yuborilgan sana
 );
 
@@ -26,7 +27,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     due_date   TEXT,                -- YYYY-MM-DD, ixtiyoriy
     due_time   TEXT,                -- HH:MM, bo'lsa shu vaqtda eslatma yuboriladi
     reminded   INTEGER NOT NULL DEFAULT 0,
-    repeat     TEXT                 -- 'daily' | 'weekly', bo'lsa bajarilganda keyingisi yaratiladi
+    repeat     TEXT,                -- 'daily' | 'weekly' | 'weekdays'; bajarilganda keyingisi
+    important  INTEGER NOT NULL DEFAULT 0,      -- ⭐ bo'limi ichida tepada turadi
+    pre_reminded INTEGER NOT NULL DEFAULT 0     -- oldindan ogohlantirish yuborilganmi
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks (user_id, is_done);
@@ -43,6 +46,9 @@ MIGRATIONS = [
     ('users', 'digest_hour', 'INTEGER'),
     ('users', 'weekly', 'INTEGER NOT NULL DEFAULT 1'),
     ('users', 'last_weekly', 'TEXT'),
+    ('users', 'lead_minutes', 'INTEGER'),
+    ('tasks', 'important', 'INTEGER NOT NULL DEFAULT 0'),
+    ('tasks', 'pre_reminded', 'INTEGER NOT NULL DEFAULT 0'),
 ]
 
 
@@ -57,6 +63,7 @@ class Task:
     due_date: date | None = None
     due_time: time | None = None
     repeat: str | None = None
+    important: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +84,7 @@ class Stats:
 class UserSettings:
     digest_hour: int | None  # None — umumiy soat
     weekly: bool
+    lead_minutes: int | None = None  # None — oldindan ogohlantirish o'chiq
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +114,7 @@ def _to_task(row: aiosqlite.Row) -> Task:
         due_date=date.fromisoformat(row['due_date']) if row['due_date'] else None,
         due_time=time.fromisoformat(row['due_time']) if row['due_time'] else None,
         repeat=row['repeat'],
+        important=bool(row['important']),
     )
 
 
@@ -163,12 +172,19 @@ class Database:
 
     async def get_settings(self, user_id: int) -> UserSettings:
         async with self.conn.execute(
-            'SELECT digest_hour, weekly FROM users WHERE id = ?', (user_id,)
+            'SELECT digest_hour, weekly, lead_minutes FROM users WHERE id = ?', (user_id,)
         ) as cursor:
             row = await cursor.fetchone()
         if row is None:
             return UserSettings(digest_hour=None, weekly=True)
-        return UserSettings(digest_hour=row['digest_hour'], weekly=bool(row['weekly']))
+        return UserSettings(
+            digest_hour=row['digest_hour'],
+            weekly=bool(row['weekly']),
+            lead_minutes=row['lead_minutes'],
+        )
+
+    async def set_lead_minutes(self, user_id: int, minutes: int | None) -> None:
+        await self._write('UPDATE users SET lead_minutes = ? WHERE id = ?', (minutes, user_id))
 
     async def digest_hour_for(self, user_id: int, default: int) -> int:
         return (await self.get_settings(user_id)).digest_hour or default
@@ -219,13 +235,21 @@ class Database:
         ) as cursor:
             return [_to_task(row) for row in await cursor.fetchall()]
 
-    async def get_open_tasks(self, user_id: int, limit: int = -1, offset: int = 0) -> list[Task]:
-        """Bajarilmaganlar: muddati o'tgan → bugun → keyingi → muddatsiz (yangisi tepada)."""
+    async def get_open_tasks(
+        self, user_id: int, today: date, limit: int = -1, offset: int = 0
+    ) -> list[Task]:
+        """Bajarilmaganlar bo'limlar tartibida: muddati o'tgan → bugun → keyingi → muddatsiz.
+
+        Har bir bo'lim ichida ⭐ muhimlari tepada, keyin eng yaqin muddat.
+        """
+        day = today.isoformat()
         async with self.conn.execute(
-            'SELECT * FROM tasks WHERE user_id = ? AND is_done = 0 '
-            'ORDER BY due_date IS NULL, due_date, due_time IS NULL, due_time, id DESC '
+            'SELECT * FROM tasks WHERE user_id = ? AND is_done = 0 ORDER BY '
+            'CASE WHEN due_date IS NULL THEN 3 WHEN due_date < ? THEN 0 '
+            'WHEN due_date = ? THEN 1 ELSE 2 END, '
+            'important DESC, due_date, due_time IS NULL, due_time, id DESC '
             'LIMIT ? OFFSET ?',
-            (user_id, limit, offset),
+            (user_id, day, day, limit, offset),
         ) as cursor:
             return [_to_task(row) for row in await cursor.fetchall()]
 
@@ -245,6 +269,27 @@ class Database:
             (done_at, task_id, user_id),
         )
         return changed > 0
+
+    async def toggle_important(self, task_id: int, user_id: int) -> bool | None:
+        """⭐ belgisini almashtiradi; yangi holatni (yoki topilmasa None) qaytaradi."""
+        changed = await self._write(
+            'UPDATE tasks SET important = 1 - important '
+            'WHERE id = ? AND user_id = ? AND is_done = 0',
+            (task_id, user_id),
+        )
+        if not changed:
+            return None
+        return (await self.get_task(task_id, user_id)).important
+
+    async def search_tasks(self, user_id: int, query: str, limit: int = 10) -> list[Task]:
+        """Nomida so'z bor vazifalar: ochiqlari tepada."""
+        pattern = '%' + query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+        async with self.conn.execute(
+            "SELECT * FROM tasks WHERE user_id = ? AND title LIKE ? ESCAPE '\\' "
+            'ORDER BY is_done, due_date IS NULL, due_date, id DESC LIMIT ?',
+            (user_id, pattern, limit),
+        ) as cursor:
+            return [_to_task(row) for row in await cursor.fetchall()]
 
     async def rename_task(self, task_id: int, user_id: int, title: str) -> bool:
         changed = await self._write(
@@ -271,15 +316,25 @@ class Database:
             return {date.fromisoformat(row[0]) for row in await cursor.fetchall()}
 
     async def reschedule(
-        self, task_id: int, user_id: int, due_date: date, due_time: time | None
+        self,
+        task_id: int,
+        user_id: int,
+        due_date: date,
+        due_time: time | None,
+        *,
+        snoozed: bool = False,
     ) -> bool:
-        """Muddatni ko'chirish/kechiktirish: yangi vaqtda eslatma qayta yuboriladi."""
+        """Muddatni ko'chirish/kechiktirish: yangi vaqtda eslatma qayta yuboriladi.
+
+        snoozed — foydalanuvchi eslatmani hozirgina ko'rdi, oldindan ogohlantirish shart emas.
+        """
         changed = await self._write(
-            'UPDATE tasks SET due_date = ?, due_time = ?, reminded = 0 '
+            'UPDATE tasks SET due_date = ?, due_time = ?, reminded = 0, pre_reminded = ? '
             'WHERE id = ? AND user_id = ? AND is_done = 0',
             (
                 due_date.isoformat(),
                 due_time.strftime('%H:%M') if due_time else None,
+                int(snoozed),
                 task_id,
                 user_id,
             ),
@@ -296,8 +351,8 @@ class Database:
     ) -> bool:
         """Muddatni to'liq almashtirish (kartadagi «Vaqtini o'zgartirish»)."""
         changed = await self._write(
-            'UPDATE tasks SET due_date = ?, due_time = ?, repeat = ?, reminded = 0 '
-            'WHERE id = ? AND user_id = ? AND is_done = 0',
+            'UPDATE tasks SET due_date = ?, due_time = ?, repeat = ?, reminded = 0, '
+            'pre_reminded = 0 WHERE id = ? AND user_id = ? AND is_done = 0',
             (
                 due_date.isoformat() if due_date else None,
                 due_time.strftime('%H:%M') if due_time else None,
@@ -356,6 +411,29 @@ class Database:
             (now.strftime('%Y-%m-%d %H:%M'),),
         ) as cursor:
             return [_to_task(row) for row in await cursor.fetchall()]
+
+    async def get_pre_reminders(self, now: datetime) -> list[tuple[Task, int]]:
+        """Oldindan ogohlantirish vaqti kelgan vazifalar (vazifa, necha daqiqa qolgani)."""
+        stamp = now.strftime('%Y-%m-%d %H:%M')
+        async with self.conn.execute(
+            'SELECT t.* FROM tasks t JOIN users u ON u.id = t.user_id '
+            'WHERE t.is_done = 0 AND t.reminded = 0 AND t.pre_reminded = 0 '
+            'AND t.due_time IS NOT NULL AND u.lead_minutes IS NOT NULL '
+            "AND strftime('%Y-%m-%d %H:%M', t.due_date || ' ' || t.due_time, "
+            "'-' || u.lead_minutes || ' minutes') <= ? "
+            "AND t.due_date || ' ' || t.due_time > ? "
+            'ORDER BY t.due_date, t.due_time',
+            (stamp, stamp),
+        ) as cursor:
+            tasks = [_to_task(row) for row in await cursor.fetchall()]
+        result = []
+        for task in tasks:
+            left = datetime.combine(task.due_date, task.due_time) - now.replace(tzinfo=None)
+            result.append((task, int(left.total_seconds() // 60)))
+        return result
+
+    async def mark_pre_reminded(self, task_id: int) -> None:
+        await self._write('UPDATE tasks SET pre_reminded = 1 WHERE id = ?', (task_id,))
 
     async def mark_reminded(self, task_id: int) -> None:
         await self._write('UPDATE tasks SET reminded = 1 WHERE id = ?', (task_id,))

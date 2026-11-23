@@ -23,6 +23,8 @@ COMMANDS = [
     BotCommand(command='start', description='Bosh menyu'),
     BotCommand(command='today', description='Bugungi reja'),
     BotCommand(command='settings', description='Sozlamalar'),
+    BotCommand(command='find', description="Vazifani qidirish: /find so'z"),
+    BotCommand(command='export', description='Vazifalarni CSV faylga yuklab olish'),
     BotCommand(command='help', description='Yordam'),
     BotCommand(command='cancel', description='Bekor qilish'),
 ]

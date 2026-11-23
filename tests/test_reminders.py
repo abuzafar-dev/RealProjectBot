@@ -176,3 +176,32 @@ async def test_weekly_report_can_be_disabled(db, user, bot, clock):
     clock.current = datetime(2026, 11, 22, 20, 0)
     await tick(bot, db, clock, DIGEST_HOUR)
     assert not any('Haftalik' in t for t in sent_texts(bot))
+
+
+async def test_pre_reminder_before_due(db, user, bot, clock):
+    await db.set_lead_minutes(user, 60)
+    await db.add_task(user, 'Imtihon', date(2026, 11, 20), time(12, 0))
+    clock.current = datetime(2026, 11, 20, 10, 59)
+    await tick(bot, db, clock, DIGEST_HOUR)
+    assert not any("Eslatib qo'yaman" in t for t in sent_texts(bot))
+
+    clock.current = datetime(2026, 11, 20, 11, 0)
+    await tick(bot, db, clock, DIGEST_HOUR)
+    await tick(bot, db, clock, DIGEST_HOUR)
+    [pre] = [t for t in sent_texts(bot) if "Eslatib qo'yaman" in t]
+    assert '1 soat qoldi' in pre
+
+    clock.current = datetime(2026, 11, 20, 12, 0)  # asosiy eslatma baribir keladi
+    await tick(bot, db, clock, DIGEST_HOUR)
+    assert any('⏰ <b>Eslatma</b>' in t for t in sent_texts(bot))
+
+
+async def test_no_pre_reminder_when_disabled_or_snoozed(db, user, bot, clock):
+    task_id = await db.add_task(user, 'A', date(2026, 11, 20), time(10, 30))
+    await tick(bot, db, clock, DIGEST_HOUR)  # sozlama o'chiq
+    assert not any("Eslatib qo'yaman" in t for t in sent_texts(bot))
+
+    await db.set_lead_minutes(user, 60)
+    await db.reschedule(task_id, user, date(2026, 11, 20), time(10, 45), snoozed=True)
+    await tick(bot, db, clock, DIGEST_HOUR)  # kechiktirilgan — qayta ogohlantirilmaydi
+    assert not any("Eslatib qo'yaman" in t for t in sent_texts(bot))

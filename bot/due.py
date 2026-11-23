@@ -4,7 +4,11 @@ Qabul qilinadigan formatlar:
     bugun | ertaga | 25.11 | 25.11.2026      — faqat sana (ertalabki rejaga tushadi)
     ... 15:00                                 — sana + vaqt (shu vaqtda eslatma keladi)
     15:00                                     — bugun, shu vaqtda
+    dushanba [10:00] ... yakshanba            — eng yaqin shu hafta kuni
+    3 kundan keyin [10:00]                    — N kundan keyin
+    2 soatdan keyin | 30 daqiqadan keyin      — aniq vaqt hozirdan hisoblab
     har kuni [09:00] | har hafta [09:00]      — takrorlanuvchi vazifa
+    har dushanba [09:00] | ish kunlari [08:00] — hafta kuni / dushanba–juma takrori
 """
 
 import re
@@ -23,12 +27,40 @@ class DueParseError(ValueError):
 class Due:
     day: date
     at: time | None = None
-    repeat: str | None = None  # 'daily' | 'weekly'
+    repeat: str | None = None  # 'daily' | 'weekly' | 'weekdays'
 
 
+WEEKDAYS = ['dushanba', 'seshanba', 'chorshanba', 'payshanba', 'juma', 'shanba', 'yakshanba']
 REPEATS = {'kuni': 'daily', 'hafta': 'weekly'}
 REPEAT_STEP = {'daily': timedelta(days=1), 'weekly': timedelta(days=7)}
-REPEAT_LABEL = {'daily': 'har kuni', 'weekly': 'har hafta'}
+RELATIVE_UNITS = {'kundan': 'days', 'soatdan': 'hours', 'daqiqadan': 'minutes'}
+
+
+def advance(day: date, repeat: str) -> date:
+    """Takrorlanuvchi vazifaning bir qadam keyingi kuni."""
+    if repeat == 'weekdays':
+        day += timedelta(days=1)
+        return align(day, repeat)
+    return day + REPEAT_STEP[repeat]
+
+
+def align(day: date, repeat: str | None) -> date:
+    """«Ish kunlari» shanba-yakshanbaga tushmasin."""
+    while repeat == 'weekdays' and day.weekday() >= 5:
+        day += timedelta(days=1)
+    return day
+
+
+def repeat_label(repeat: str, day: date | None = None) -> str:
+    if repeat == 'weekdays':
+        return 'ish kunlari'
+    if repeat == 'weekly':
+        return f'har {WEEKDAYS[day.weekday()]}' if day else 'har hafta'
+    return 'har kuni'
+
+
+def _next_weekday(name: str, today: date) -> date:
+    return today + timedelta(days=(WEEKDAYS.index(name) - today.weekday()) % 7)
 
 
 def _parse_time(text: str) -> time | None:
@@ -68,35 +100,72 @@ def _is_past(day: date, at: time | None, now: datetime) -> bool:
 
 
 def _parse_repeat(parts: list[str], now: datetime) -> Due:
-    repeat = REPEATS.get(parts[1]) if len(parts) > 1 else None
-    if repeat is None or len(parts) > 3:
+    """har kuni / har hafta / har dushanba / ish kunlari [+ vaqt]."""
+    today = now.date()
+    if parts[:2] == ['ish', 'kunlari']:
+        repeat, day = 'weekdays', align(today, 'weekdays')
+    elif len(parts) > 1 and parts[1] in WEEKDAYS:
+        repeat, day = 'weekly', _next_weekday(parts[1], today)
+    elif len(parts) > 1 and parts[1] in REPEATS:
+        repeat, day = REPEATS[parts[1]], today
+    else:
+        raise DueParseError(FORMAT_HINT)
+    if len(parts) > 3:
         raise DueParseError(FORMAT_HINT)
     at = _parse_time(parts[2]) if len(parts) == 3 else None
     if len(parts) == 3 and at is None:
         raise DueParseError(FORMAT_HINT)
-    day = now.date()
-    if _is_past(day, at, now):  # bugungi vaqt o'tib ketgan — birinchisi keyingi takrorda
-        day += REPEAT_STEP[repeat]
+    while _is_past(day, at, now):  # bugungi vaqt o'tib ketgan — birinchisi keyingi takrorda
+        day = advance(day, repeat)
     return Due(day, at, repeat)
+
+
+def _parse_relative(parts: list[str], now: datetime) -> Due | None:
+    """3 kundan keyin [10:00] | 2 soatdan keyin | 30 daqiqadan keyin."""
+    if len(parts) not in (3, 4) or parts[2] != 'keyin' or parts[1] not in RELATIVE_UNITS:
+        return None
+    if not parts[0].isdigit() or not 0 < int(parts[0]) <= 365:
+        raise DueParseError("Son 1 dan 365 gacha bo'lsin. Masalan: <code>3 kundan keyin</code>")
+    unit = RELATIVE_UNITS[parts[1]]
+    if unit != 'days':
+        if len(parts) == 4:
+            return None
+        when = now + timedelta(**{unit: int(parts[0])})
+        return Due(when.date(), when.time().replace(second=0, microsecond=0))
+    at = _parse_time(parts[3]) if len(parts) == 4 else None
+    if len(parts) == 4 and at is None:
+        return None
+    return Due(now.date() + timedelta(days=int(parts[0])), at)
 
 
 def next_occurrence(day: date, at: time | None, repeat: str, now: datetime) -> date:
     """Takrorlanuvchi vazifaning keyingi sanasi — har doim kelajakda (o'tgan kunlar o'tkaziladi)."""
-    step = REPEAT_STEP[repeat]
-    day += step
+    day = advance(day, repeat)
     while _is_past(day, at, now):
-        day += step
+        day = advance(day, repeat)
     return day
 
 
 def parse_due(text: str, now: datetime) -> Due:
     parts = text.strip().lower().split()
-    if parts and parts[0] == 'har':
+    if parts and (parts[0] == 'har' or parts[:2] == ['ish', 'kunlari']):
         return _parse_repeat(parts, now)
+    relative = _parse_relative(parts, now)
+    if relative is not None:
+        return relative
     if not 1 <= len(parts) <= 2:
         raise DueParseError(FORMAT_HINT)
 
     today = now.date()
+    if parts[0] in WEEKDAYS:
+        at = _parse_time(parts[1]) if len(parts) == 2 else None
+        if len(parts) == 2 and at is None:
+            raise DueParseError(FORMAT_HINT)
+        day = _next_weekday(parts[0], today)
+        if _is_past(day, at, now):  # bugun shu kun, lekin vaqt o'tgan — keyingi hafta
+            day += timedelta(days=7)
+        return Due(day, at)
+
     at = _parse_time(parts[-1])
     if len(parts) == 1 and at is not None:
         day = today
@@ -115,7 +184,8 @@ def parse_due(text: str, now: datetime) -> Due:
 FORMAT_HINT = (
     'Muddatni tushunmadim. Masalan:\n'
     '<code>ertaga</code>, <code>25.11</code>, <code>ertaga 15:00</code>, <code>18:30</code>, '
-    '<code>har kuni 09:00</code>, <code>har hafta</code>'
+    '<code>dushanba 10:00</code>, <code>3 kundan keyin</code>, <code>2 soatdan keyin</code>, '
+    '<code>har kuni 09:00</code>, <code>har seshanba 08:30</code>, <code>ish kunlari 07:00</code>'
 )
 
 
@@ -129,7 +199,7 @@ def format_due(day: date, at: time | None, today: date, repeat: str | None = Non
     else:
         label = day.strftime('%d.%m') if day.year == today.year else day.strftime('%d.%m.%Y')
     text = f'{label} {at:%H:%M}' if at else label
-    return f'{text} 🔁 {REPEAT_LABEL[repeat]}' if repeat else text
+    return f'{text} 🔁 {repeat_label(repeat, day)}' if repeat else text
 
 
 # --- vazifa qo'shishning "soat nechada?" qadami ---
@@ -152,7 +222,7 @@ def morning_reachable(day: date, now: datetime, digest_hour: int) -> bool:
 def first_morning(day: date, repeat: str | None, now: datetime, digest_hour: int) -> date:
     """Takrorlanuvchi vaqtsiz vazifa: bugungi reja o'tgan bo'lsa — keyingi takrordan boshlanadi."""
     while repeat and not morning_reachable(day, now, digest_hour):
-        day += REPEAT_STEP[repeat]
+        day = advance(day, repeat)
     return day
 
 
@@ -161,7 +231,7 @@ def resolve_time(day: date, at: time, repeat: str | None, now: datetime) -> date
     while _is_past(day, at, now):
         if not repeat:
             raise DueParseError("Bu vaqt o'tib ketgan. Keyinroq vaqtni tanlang")
-        day += REPEAT_STEP[repeat]
+        day = advance(day, repeat)
     return day
 
 
@@ -196,10 +266,14 @@ def split_title_due(text: str, now: datetime) -> tuple[str, Due | None]:
     qism ("bugun 09:00" — o'tib ketgan) DueParseError beradi.
     """
     words = text.split()
-    for size in (3, 2, 1):
+    for size in (4, 3, 2, 1):
         if len(words) <= size:
             continue
-        for due_words, rest in ((words[-size:], words[:-size]), (words[:size], words[size:])):
+        candidates = ((words[-size:], words[:-size], False), (words[:size], words[size:], True))
+        for due_words, rest, leading in candidates:
+            # «Juma namozi», «Shanba kuni bozor» — boshidagi yolg'iz kun nomi nomning bir qismi
+            if leading and size == 1 and due_words[0].lower() in WEEKDAYS:
+                continue
             candidate = ' '.join(due_words)
             try:
                 due = parse_due(candidate, now)

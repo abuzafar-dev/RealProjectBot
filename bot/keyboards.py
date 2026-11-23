@@ -45,7 +45,7 @@ day_menu = ReplyKeyboardMarkup(
 
 
 class TaskCallback(CallbackData, prefix='task'):
-    action: str  # 'open' | 'done' | 'edit' | 'rename' | 'tomorrow' | 'delete'
+    action: str  # 'open' | 'done' | 'star' | 'edit' | 'rename' | 'tomorrow' | 'delete'
     task_id: int
     page: int = 0
 
@@ -68,14 +68,18 @@ class ClearDoneCallback(CallbackData, prefix='clear'):
 
 
 class SettingsCallback(CallbackData, prefix='set'):
-    action: str  # 'hour' | 'weekly'
+    action: str  # 'hour' | 'weekly' | 'lead'
     value: int = 0
 
 
 DIGEST_HOURS = [6, 7, 8, 9, 10]
+# (tugma matni, daqiqa); 0 — o'chiq
+LEAD_OPTIONS = [("O'chiq", 0), ('15 daq', 15), ('1 soat', 60), ('1 kun', 1440)]
 
 
-def settings_keyboard(digest_hour: int, weekly: bool) -> InlineKeyboardMarkup:
+def settings_keyboard(
+    digest_hour: int, weekly: bool, lead: int | None = None
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for hour in DIGEST_HOURS:
         mark = '✓ ' if hour == digest_hour else ''
@@ -84,12 +88,23 @@ def settings_keyboard(digest_hour: int, weekly: bool) -> InlineKeyboardMarkup:
         )
     weekly_text = '✅ yoqilgan' if weekly else "❌ o'chiq"
     weekly_text = f'📈 Haftalik hisobot: {weekly_text}'
+    for text, minutes in LEAD_OPTIONS:
+        mark = '✓ ' if minutes == (lead or 0) else ''
+        builder.button(
+            text=f'🔔 {mark}{text}', callback_data=SettingsCallback(action='lead', value=minutes)
+        )
     builder.button(text=weekly_text, callback_data=SettingsCallback(action='weekly'))
-    builder.adjust(len(DIGEST_HOURS), 1)
+    builder.adjust(len(DIGEST_HOURS), len(LEAD_OPTIONS), 1)
     return builder.as_markup()
 
 
 SNOOZE_OPTIONS = [('+15 daq', 15), ('+1 soat', 60), ('Ertaga', 0)]
+
+
+def done_keyboard(task_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text='✅ Bajarildi', callback_data=RemindCallback(task_id=task_id))
+    return builder.as_markup()
 
 
 def remind_keyboard(task_id: int) -> InlineKeyboardMarkup:
@@ -159,10 +174,11 @@ def tasks_keyboard(
     return builder.as_markup()
 
 
-def task_card_keyboard(task_id: int, page: int) -> InlineKeyboardMarkup:
+def task_card_keyboard(task_id: int, page: int, important: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for text, action in [
         ('✅ Bajarildi', 'done'),
+        ('☆ Oddiy qilish' if important else '⭐ Muhim', 'star'),
         ("⏰ Vaqtini o'zgartirish", 'edit'),
         ("✏️ Nomini o'zgartirish", 'rename'),
         ('📅 Ertaga', 'tomorrow'),
@@ -172,5 +188,5 @@ def task_card_keyboard(task_id: int, page: int) -> InlineKeyboardMarkup:
             text=text, callback_data=TaskCallback(action=action, task_id=task_id, page=page)
         )
     builder.button(text="◀️ Ro'yxatga qaytish", callback_data=PageCallback(page=page))
-    builder.adjust(1, 2, 2, 1)
+    builder.adjust(2, 2, 2, 1)
     return builder.as_markup()

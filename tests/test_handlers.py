@@ -1,12 +1,12 @@
 from datetime import date, datetime, time
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import SendPhoto
 
 from bot import texts
-from bot.handlers import settings, start, tasks
+from bot.handlers import settings, start, tasks, tools
 from bot.keyboards import (
     MORNING,
     MY_TASKS,
@@ -149,6 +149,7 @@ async def test_open_task_card(db, user, clock, make_callback):
     markup = callback.message.edit_text.call_args.kwargs['reply_markup']
     assert buttons(markup) == [
         '✅ Bajarildi',
+        '⭐ Muhim',
         "⏰ Vaqtini o'zgartirish",
         "✏️ Nomini o'zgartirish",
         '📅 Ertaga',
@@ -505,3 +506,57 @@ async def test_personal_digest_hour_used_in_add_flow(db, user, state, clock, mak
     message = make_message(MORNING, user_id=user)
     await tasks.add_task_time(message, state, db, clock)
     assert 'ertalab 10:00 dagi rejada' in message.answer.call_args.args[0]
+
+
+# --- 3-kengaytirish: ⭐ muhim, 🔍 qidirish, 📤 eksport, 🔔 oldindan ogohlantirish sozlamasi ---
+
+
+async def test_star_moves_task_to_top_of_section(db, user, clock, make_callback):
+    await db.add_task(user, 'Oddiy', TODAY, time(11, 0))
+    important_id = await db.add_task(user, 'Muhim ish', TODAY, time(18, 0))
+    callback = make_callback(user)
+    await tasks.task_star(callback, TaskCallback(action='star', task_id=important_id), db, clock)
+    assert '⭐ <b>Muhim ish</b>' in callback.message.edit_text.call_args.args[0]
+
+    text, _ = await tasks.render_tasks(db, user, 0, TODAY)
+    assert text.index('1. ⭐ Muhim ish') < text.index('2. Oddiy')
+
+
+async def test_find(db, user, state, clock, make_message):
+    await db.add_task(user, 'Yillik hisobot')
+    await db.mark_done(await db.add_task(user, 'Eski hisobot'), user)
+    await db.add_task(user, 'Sport')
+    message = make_message('/find hisobot', user_id=user)
+    await tools.find_handler(message, MagicMock(args='hisobot'), state, db, clock)
+    text = message.answer.call_args.args[0]
+    assert '2 ta' in text and 'Yillik hisobot' in text and '<s>Eski hisobot</s>' in text
+    assert 'Sport' not in text
+    markup = message.answer.call_args.kwargs['reply_markup']
+    assert buttons(markup) == ['1']  # faqat ochiq vazifa kartasi ochiladi
+
+
+async def test_find_escapes_wildcards(db, user, state, clock, make_message):
+    await db.add_task(user, 'Hisobot 100% tayyor')
+    await db.add_task(user, 'Boshqa ish')
+    message = make_message(user_id=user)
+    await tools.find_handler(message, MagicMock(args='0%'), state, db, clock)
+    assert '1 ta' in message.answer.call_args.args[0]
+
+
+async def test_export_csv(db, user, state, clock, make_message):
+    await db.add_task(user, "Qo'ng'iroq, onamga", TODAY, time(18, 0), 'weekly')
+    message = make_message(user_id=user)
+    await tools.export_handler(message, state, db, clock)
+    document = message.answer_document.call_args.args[0]
+    content = document.data.decode('utf-8-sig')
+    assert document.filename == 'vazifalar_2026-11-20.csv'
+    assert '"Qo\'ng\'iroq, onamga",ochiq,20.11.2026,18:00,har juma' in content
+
+
+async def test_lead_setting(db, user, make_callback):
+    callback = make_callback(user)
+    await settings.settings_change(callback, SettingsCallback(action='lead', value=60), db)
+    assert (await db.get_settings(user)).lead_minutes == 60
+    assert '1 soat oldin' in callback.message.edit_text.call_args.args[0]
+    await settings.settings_change(callback, SettingsCallback(action='lead', value=0), db)
+    assert (await db.get_settings(user)).lead_minutes is None

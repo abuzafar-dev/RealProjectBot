@@ -11,6 +11,7 @@ from bot.due import (
     parse_due,
     reminder_note,
     resolve_time,
+    split_title_due,
     time_options,
 )
 
@@ -130,3 +131,50 @@ def test_streak():
     assert streak(days, TODAY) == 3
     assert streak(days, date(2026, 11, 21)) == 3  # bugun hali bajarmagan — kechadan sanaladi
     assert streak(days, date(2026, 11, 22)) == 0
+
+
+# 20.11.2026 — juma, 10:00
+@pytest.mark.parametrize(
+    ('text', 'expected'),
+    [
+        ('dushanba', Due(date(2026, 11, 23))),
+        ('juma 15:00', Due(TODAY, time(15, 0))),  # bugun juma, vaqt hali bor
+        ('juma 09:00', Due(date(2026, 11, 27), time(9, 0))),  # bugungisi o'tgan — keyingi hafta
+        ('3 kundan keyin', Due(date(2026, 11, 23))),
+        ('2 kundan keyin 15:00', Due(date(2026, 11, 22), time(15, 0))),
+        ('30 daqiqadan keyin', Due(TODAY, time(10, 30))),
+        ('2 soatdan keyin', Due(TODAY, time(12, 0))),
+        ('har seshanba 08:30', Due(date(2026, 11, 24), time(8, 30), 'weekly')),
+        (
+            'ish kunlari 07:00',
+            Due(date(2026, 11, 23), time(7, 0), 'weekdays'),
+        ),  # shanba o'tkaziladi
+    ],
+)
+def test_parse_weekdays_and_relative(text, expected):
+    assert parse_due(text, NOW) == expected
+
+
+def test_weekdays_repeat_skips_weekend():
+    assert next_occurrence(TODAY, time(7, 0), 'weekdays', NOW) == date(2026, 11, 23)
+
+
+@pytest.mark.parametrize(
+    ('text', 'title'),
+    [
+        ('Juma namozi', 'Juma namozi'),  # boshidagi yolg'iz kun nomi — nomning bir qismi
+        ('Shanba kuni bozor', 'Shanba kuni bozor'),
+        ('Bozor shanba', 'Bozor'),
+        ('juma 12:30 Namoz', 'Namoz'),
+        ('Dori 2 soatdan keyin', 'Dori'),
+        ('Uchrashuv 2 kundan keyin 15:00', 'Uchrashuv'),
+    ],
+)
+def test_split_weekday_edge_cases(text, title):
+    assert split_title_due(text, NOW)[0] == title
+
+
+def test_format_weekly_shows_weekday():
+    assert format_due(date(2026, 11, 24), time(8, 30), TODAY, 'weekly') == (
+        '24.11 08:30 🔁 har seshanba'
+    )

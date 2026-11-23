@@ -10,7 +10,6 @@ from bot.clock import Clock
 from bot.database import Database, Task
 from bot.due import (
     RELATIVE_TIMES,
-    REPEAT_LABEL,
     DueParseError,
     first_morning,
     format_due,
@@ -19,6 +18,7 @@ from bot.due import (
     parse_clock,
     parse_due,
     reminder_note,
+    repeat_label,
     resolve_time,
     split_title_due,
     time_options,
@@ -72,7 +72,8 @@ def section_of(task: Task, today: date) -> str:
 
 def task_line(number: int, task: Task, today: date) -> str:
     """Bitta qator: raqam, nom va (bo'lim sarlavhasi aytmagan) qisqa muddat."""
-    line = f'{number}. {html.quote(task.title)}'
+    star = '⭐ ' if task.important else ''
+    line = f'{number}. {star}{html.quote(task.title)}'
     section = section_of(task, today)
     if section == 'today':
         when = f'{task.due_time:%H:%M}' if task.due_time else ''
@@ -99,7 +100,7 @@ async def render_tasks(
     pages = (stats.left + PAGE_SIZE - 1) // PAGE_SIZE
     page = min(max(page, 0), pages - 1)
     offset = page * PAGE_SIZE
-    tasks = await db.get_open_tasks(user_id, limit=PAGE_SIZE, offset=offset)
+    tasks = await db.get_open_tasks(user_id, today, limit=PAGE_SIZE, offset=offset)
 
     lines = [f'📋 <b>Vazifalaringiz</b> · {stats.left} ta ochiq']
     current = None
@@ -118,7 +119,8 @@ async def render_tasks(
 
 
 def task_card(task: Task, today: date) -> str:
-    lines = [f'📝 <b>{html.quote(task.title)}</b>', '']
+    star = '⭐ ' if task.important else ''
+    lines = [f'📝 {star}<b>{html.quote(task.title)}</b>', '']
     if task.due_date is None:
         lines.append("Muddat: yo'q")
     elif task.due_date < today:
@@ -130,7 +132,7 @@ def task_card(task: Task, today: date) -> str:
         if task.due_time:
             lines.append('⏰ Shu vaqtda eslataman')
     if task.repeat:
-        lines.append(f'🔁 Takrorlanadi: {REPEAT_LABEL[task.repeat]}')
+        lines.append(f'🔁 Takrorlanadi: {repeat_label(task.repeat, task.due_date)}')
     return '\n'.join(lines)
 
 
@@ -272,7 +274,10 @@ async def ask_time(message: Message, state: FSMContext, due, now: datetime, hour
     await state.update_data(day=due.day.isoformat(), repeat=due.repeat)
     await state.set_state(AddTask.time)
     with_morning = due.repeat is not None or morning_reachable(due.day, now, hour)
-    when = f'🔁 {REPEAT_LABEL[due.repeat]}' if due.repeat else format_due(due.day, None, now.date())
+    if due.repeat:
+        when = f'🔁 {repeat_label(due.repeat, due.day)}'
+    else:
+        when = format_due(due.day, None, now.date())
     hint = (
         f"\n☀️ «Ertalabki rejada» — alohida eslatmasiz, {hour:02d}:00 dagi ro'yxatda"
         if with_morning
@@ -431,9 +436,26 @@ async def task_open(
         return
     await callback.message.edit_text(
         task_card(task, clock.now().date()),
-        reply_markup=task_card_keyboard(task.id, callback_data.page),
+        reply_markup=task_card_keyboard(task.id, callback_data.page, task.important),
     )
     await callback.answer()
+
+
+@router.callback_query(TaskCallback.filter(F.action == 'star'))
+async def task_star(
+    callback: CallbackQuery, callback_data: TaskCallback, db: Database, clock: Clock
+) -> None:
+    important = await db.toggle_important(callback_data.task_id, callback.from_user.id)
+    if important is None:
+        await callback.answer("Bu vazifa allaqachon bajarilgan yoki o'chirilgan", show_alert=True)
+        await refresh_list(callback, db, clock, callback_data.page)
+        return
+    task = await db.get_task(callback_data.task_id, callback.from_user.id)
+    await callback.message.edit_text(
+        task_card(task, clock.now().date()),
+        reply_markup=task_card_keyboard(task.id, callback_data.page, task.important),
+    )
+    await callback.answer("⭐ Muhim — ro'yxatda tepada turadi" if important else 'Oddiy vazifa')
 
 
 @router.callback_query(TaskCallback.filter(F.action == 'done'))
@@ -557,7 +579,7 @@ async def snooze(
     else:
         at = task.due_time or now.time()
         when = datetime.combine(now.date() + timedelta(days=1), at)
-    await db.reschedule(task.id, task.user_id, when.date(), when.time())
+    await db.reschedule(task.id, task.user_id, when.date(), when.time(), snoozed=True)
     label = format_due(when.date(), when.time(), now.date())
     await callback.message.edit_text(
         f'⏰ <b>Kechiktirildi</b>\n{html.quote(task.title)}\n\n{label} da qayta eslataman'

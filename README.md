@@ -31,6 +31,9 @@ eng muhimi esa — **bot o'zi yozadi**, uni ochish shart emas:
 | Bugun nima qilishim kerakligini bilmayman | Har kuni ertalab (08:00) ☀️ **bugungi reja**, istalgan payt — «☀️ Bugungi reja» |
 | Yozish uchun ko'p qadam | Bitta xabar kifoya: `Hisobot ertaga 15:00` — nom va muddat o'zi ajratiladi |
 | Har kimning kuni har xil boshlanadi | ⚙️ Sozlamalarda ertalabki reja soati (06:00–10:00) shaxsan tanlanadi |
+| Dars jadvali haftaning aniq kunlarida | `har seshanba 08:30`, `ish kunlari 07:00`, `dushanba 10:00`, `3 kundan keyin` |
+| Imtihonga tayyorlanishga vaqt qolmaydi | 🔔 Oldindan ogohlantirish: 15 daqiqa / 1 soat / 1 kun oldin «⏳ qoldi» |
+| Muhim ish oddiylari orasida yo'qoladi | ⭐ Muhim — o'z bo'limida doim tepada |
 | Qancha ish qilganim sezilmaydi | 📈 Har yakshanba haftalik hisobot, 📊 da 🔥 ketma-ket kunlar |
 | Ro'yxat chalkash | Eng yaqin muddat tepada, ⚠️ muddati o'tganlar belgilangan, bajarilganlar ~~chizilgan~~ |
 | Qancha ish qildim — ko'rinmaydi | 📊 statistika: jami, bajarilgan, qolgan, muddati o'tgan, progress |
@@ -82,7 +85,17 @@ eng muhimi esa — **bot o'zi yozadi**, uni ochish shart emas:
 - **📊 Statistika** — bugun va shu hafta bajarilganlar, 🔥 ketma-ket kunlar, jami, muddati o'tgan
 - **📈 Haftalik hisobot** — har yakshanba 20:00 da: bajarilganlar, muddati o'tganlar,
   ketma-ketlik va keyingi 7 kunga reja. Sozlamalarda o'chirish mumkin
-- **⚙️ Sozlamalar** (`/settings`) — shaxsiy ertalabki reja soati va haftalik hisobot
+- **🗓 Kun nomlari va nisbiy vaqt** — `dushanba 10:00`, `3 kundan keyin [15:00]`,
+  `2 soatdan keyin`, `30 daqiqadan keyin`; takrorlash: `har seshanba 08:30`,
+  `ish kunlari 07:00` (shanba-yakshanba o'tkaziladi). «Juma namozi» kabi nomlar buzilmaydi:
+  matn boshidagi yolg'iz kun nomi muddat deb olinmaydi
+- **🔔 Oldindan ogohlantirish** — sozlamalarda 15 daqiqa / 1 soat / 1 kun; asosiy eslatma
+  baribir o'z vaqtida keladi, kechiktirilgan eslatma uchun qayta ogohlantirilmaydi
+- **⭐ Muhim** — kartada belgilanadi, ro'yxatda va ertalabki rejada ajralib turadi
+- **🔍 `/find so'z`** — vazifani nomidan qidirish (bajarilganlar ham), natijadan karta ochiladi
+- **📤 `/export`** — barcha vazifalar CSV faylda (Excel/Google Sheets uchun UTF-8 BOM bilan)
+- **⚙️ Sozlamalar** (`/settings`) — shaxsiy ertalabki reja soati, oldindan ogohlantirish va
+  haftalik hisobot
 - **🛠 `/admin`** — bot egasi uchun (`ADMIN_ID`): foydalanuvchilar, faollar, vazifalar, eslatmalar
 - `/start`, `/today`, `/help`, `/cancel` buyruqlari, Telegram menyusida ko'rinadi;
   noma'lum buyruq va matn bo'lmagan xabarga tushunarli javob beriladi
@@ -117,6 +130,7 @@ bot/
     start.py            /start, /help, /cancel, statistika
     tasks.py            vazifa qo'shish, ro'yxat, karta, callbacklar
     settings.py         ⚙️ shaxsiy sozlamalar
+    tools.py            🔍 qidirish va 📤 CSV eksport
     errors.py           global xato ushlagich
 tests/                  baza va handlerlar uchun testlar
 scripts/ci.sh           lokal va CI'da bir xil tekshiruv
@@ -146,7 +160,7 @@ scripts/ci.sh           lokal va CI'da bir xil tekshiruv
 - **Vaqt — dependency.** Joriy vaqt `Clock` obyekti orqali olinadi, shuning uchun testlarda
   "hozir"ni qotirib, eslatmalarni soatni kutmasdan tekshirish mumkin.
 - **Migratsiya.** Eski bazada yangi ustunlar (`done_at`, `due_date`, `due_time`, `reminded`,
-  `last_digest`, `repeat`, `digest_hour`, `weekly`, `last_weekly`) bo'lmasa, ishga tushishda avtomatik qo'shiladi. Ma'lumotlar yo'qolmaydi.
+  `last_digest`, `repeat`, `digest_hour`, `weekly`, `last_weekly`, `lead_minutes`, `important`, `pre_reminded`) bo'lmasa, ishga tushishda avtomatik qo'shiladi. Ma'lumotlar yo'qolmaydi.
 
 ## Real ishlatishda topilgan va tuzatilgan xatolar
 
@@ -218,7 +232,7 @@ make test     # ruff lint + format tekshiruvi + pytest (CI bilan aynan bir xil)
 make format   # kodni avtomatik formatlash
 ```
 
-108 ta test quyidagilarni qamraydi: bazaning CRUD amallari, muddat bo'yicha saralash va
+132 ta test quyidagilarni qamraydi: bazaning CRUD amallari, muddat bo'yicha saralash va
 sahifalash, boshqa foydalanuvchi vazifasiga kirishni taqiqlash, foreign key, eski sxemadan
 migratsiya, muddat matnini o'qish (to'g'ri va noto'g'ri formatlar), vazifa qo'shish oqimi,
 HTML escaping, ro'yxat va callbacklar, statistika, eslatmaning aniq vaqtda va faqat bir marta
