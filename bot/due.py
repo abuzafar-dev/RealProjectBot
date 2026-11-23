@@ -130,3 +130,82 @@ def format_due(day: date, at: time | None, today: date, repeat: str | None = Non
         label = day.strftime('%d.%m') if day.year == today.year else day.strftime('%d.%m.%Y')
     text = f'{label} {at:%H:%M}' if at else label
     return f'{text} 🔁 {REPEAT_LABEL[repeat]}' if repeat else text
+
+
+# --- vazifa qo'shishning "soat nechada?" qadami ---
+
+FIXED_TIMES = [time(9, 0), time(13, 0), time(18, 0), time(21, 0)]
+RELATIVE_TIMES = {'⏱ 1 soatdan keyin': timedelta(hours=1), '⏱ 3 soatdan keyin': timedelta(hours=3)}
+
+
+def parse_clock(text: str) -> time | None:
+    """'16:30' -> time; vaqt bo'lmasa None; noto'g'ri vaqt (25:00) -> DueParseError."""
+    return _parse_time(text.strip())
+
+
+def morning_reachable(day: date, now: datetime, digest_hour: int) -> bool:
+    """Shu kungi ertalabki reja hali yuboriladimi (bugun soat o'tib ketgan bo'lsa — yo'q)."""
+    today = now.date()
+    return day > today or (day == today and now.hour < digest_hour)
+
+
+def first_morning(day: date, repeat: str | None, now: datetime, digest_hour: int) -> date:
+    """Takrorlanuvchi vaqtsiz vazifa: bugungi reja o'tgan bo'lsa — keyingi takrordan boshlanadi."""
+    while repeat and not morning_reachable(day, now, digest_hour):
+        day += REPEAT_STEP[repeat]
+    return day
+
+
+def resolve_time(day: date, at: time, repeat: str | None, now: datetime) -> date:
+    """Tanlangan soat o'tib ketgan bo'lsa: takrorlanuvchida keyingi kun, aks holda xato."""
+    while _is_past(day, at, now):
+        if not repeat:
+            raise DueParseError("Bu vaqt o'tib ketgan. Keyinroq vaqtni tanlang")
+        day += REPEAT_STEP[repeat]
+    return day
+
+
+def time_options(day: date, repeat: str | None, now: datetime) -> list[str]:
+    """Tugmalar: bugun uchun nisbiy vaqtlar va faqat hali kelmagan soatlar."""
+    today_once = day == now.date() and not repeat
+    options = list(RELATIVE_TIMES) if today_once else []
+    options += [f'{at:%H:%M}' for at in FIXED_TIMES if not (today_once and _is_past(day, at, now))]
+    return options
+
+
+def reminder_note(
+    day: date | None, at: time | None, repeat: str | None, today: date, digest_hour: int
+) -> str:
+    """Foydalanuvchiga eslatma qachon kelishini aniq aytadi."""
+    if day is None:
+        return "📝 Muddatsiz — ro'yxatda turadi, eslatma kelmaydi"
+    label = format_due(day, at, today, repeat)
+    if at is not None:
+        return f'⏰ {label} — aynan shu vaqtda eslataman'
+    return f'☀️ {label} — ertalab {digest_hour:02d}:00 dagi rejada eslataman'
+
+
+# --- bitta xabarda qo'shish: "ertaga 15:00 Hisobot" yoki "Hisobot ertaga 15:00" ---
+
+
+def split_title_due(text: str, now: datetime) -> tuple[str, Due | None]:
+    """Matn boshidan yoki oxiridan muddatni ajratadi. Topilmasa — (butun matn, None).
+
+    Faqat chetdagi so'zlar tekshiriladi, shuning uchun nom ichidagi raqamlar
+    ("Python 3.12 o'rnatish") muddat deb olinmaydi. Muddatga o'xshagan, lekin noto'g'ri
+    qism ("bugun 09:00" — o'tib ketgan) DueParseError beradi.
+    """
+    words = text.split()
+    for size in (3, 2, 1):
+        if len(words) <= size:
+            continue
+        for due_words, rest in ((words[-size:], words[:-size]), (words[:size], words[size:])):
+            candidate = ' '.join(due_words)
+            try:
+                due = parse_due(candidate, now)
+            except DueParseError as error:
+                if str(error) != FORMAT_HINT:
+                    raise
+                continue
+            return ' '.join(rest), due
+    return text, None

@@ -1,7 +1,7 @@
 from aiogram import F, Router
 from aiogram.enums import ChatType
 
-from bot.handlers import errors, start, tasks
+from bot.handlers import errors, settings, start, tasks
 
 
 def get_router() -> Router:
@@ -9,5 +9,6 @@ def get_router() -> Router:
     # Shaxsiy yordamchi: guruhda vazifalar va eslatmalar aralashib ketadi, shuning uchun
     # faqat shaxsiy chat xabarlari qayta ishlanadi
     router.message.filter(F.chat.type == ChatType.PRIVATE)
-    router.include_routers(start.router, tasks.router, errors.router)
+    # settings tasks'dan oldin: «⚙️ Sozlamalar» matni tez qo'shishga (vazifa nomiga) tushmasin
+    router.include_routers(start.router, settings.router, tasks.router, errors.router)
     return router

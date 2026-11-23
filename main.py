@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 COMMANDS = [
     BotCommand(command='start', description='Bosh menyu'),
     BotCommand(command='today', description='Bugungi reja'),
+    BotCommand(command='settings', description='Sozlamalar'),
     BotCommand(command='help', description='Yordam'),
     BotCommand(command='cancel', description='Bekor qilish'),
 ]
@@ -52,7 +53,9 @@ async def main() -> None:
     bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     clock = Clock(settings.timezone)
     # db va clock handlerlarga argument sifatida avtomatik uzatiladi (dependency injection)
-    dp = Dispatcher(db=db, clock=clock, admin_id=settings.admin_id)
+    dp = Dispatcher(
+        db=db, clock=clock, admin_id=settings.admin_id, digest_hour=settings.digest_hour
+    )
     dp.include_router(get_router())
 
     reminders = asyncio.create_task(run_reminders(bot, db, clock, settings.digest_hour))

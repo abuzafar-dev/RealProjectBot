@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from aiogram import F, Router, html
 from aiogram.exceptions import TelegramBadRequest
@@ -8,11 +8,26 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from bot.clock import Clock
 from bot.database import Database, Task
-from bot.due import REPEAT_LABEL, DueParseError, format_due, next_occurrence, parse_due
+from bot.due import (
+    RELATIVE_TIMES,
+    REPEAT_LABEL,
+    DueParseError,
+    first_morning,
+    format_due,
+    morning_reachable,
+    next_occurrence,
+    parse_clock,
+    parse_due,
+    reminder_note,
+    resolve_time,
+    split_title_due,
+    time_options,
+)
 from bot.keyboards import (
     ADD_TASK,
     EVERY_DAY,
     MENU_BUTTONS,
+    MORNING,
     MY_TASKS,
     NO_DUE,
     TODAY_PLAN,
@@ -22,13 +37,14 @@ from bot.keyboards import (
     SnoozeCallback,
     TaskCallback,
     cancel_menu,
-    due_menu,
+    day_menu,
     main_menu,
     task_card_keyboard,
     tasks_keyboard,
+    time_menu,
 )
 from bot.reminders import digest_text
-from bot.states import AddTask
+from bot.states import AddTask, RenameTask
 
 router = Router(name='tasks')
 
@@ -36,13 +52,7 @@ MIN_TITLE_LENGTH = 3
 MAX_TITLE_LENGTH = 200
 PAGE_SIZE = 10
 EMPTY_TEXT = "Sizda hali vazifa yo'q. «➕ Vazifa qo'shish» tugmasini bosing yoki shunchaki yozing."
-DUE_PROMPT = (
-    '📅 Muddat qachon?\n'
-    '<code>ertaga</code>, <code>25.11</code> — ertalabki rejaga tushadi\n'
-    '<code>ertaga 15:00</code>, <code>18:30</code> — aynan shu vaqtda eslataman\n'
-    '<code>har kuni 09:00</code>, <code>har hafta</code> — takrorlanadi 🔁'
-)
-
+DEFAULT_DIGEST_HOUR = 8
 
 SECTIONS = {
     'overdue': "⚠️ <b>Muddati o'tgan</b>",
@@ -136,7 +146,7 @@ async def refresh_list(callback: CallbackQuery, db: Database, clock: Clock, page
 
 async def complete_task(db: Database, task: Task, now: datetime) -> Task | None:
     """Vazifani yopadi; takrorlanuvchi bo'lsa keyingisini yaratib, uni qaytaradi."""
-    if not await db.mark_done(task.id, task.user_id) or not task.repeat:
+    if not await db.mark_done(task.id, task.user_id, now) or not task.repeat:
         return None
     day = next_occurrence(task.due_date or now.date(), task.due_time, task.repeat, now)
     new_id = await db.add_task(task.user_id, task.title, day, task.due_time, task.repeat)
@@ -154,6 +164,7 @@ def next_text(task: Task | None, today: date) -> str:
 
 @router.message(F.text == ADD_TASK)
 async def add_task_start(message: Message, state: FSMContext) -> None:
+    await state.clear()
     await state.set_state(AddTask.title)
     await message.answer('Vazifa nomini yozing:', reply_markup=cancel_menu)
 
@@ -182,66 +193,216 @@ async def today_plan(message: Message, state: FSMContext, db: Database, clock: C
 # --- vazifa qo'shish ---
 
 
-async def accept_title(message: Message, state: FSMContext, raw: str) -> None:
-    title = ' '.join(raw.split())
+def day_prompt(title: str) -> str:
+    return (
+        f'📝 {html.quote(title)}\n\n'
+        '📅 <b>Qaysi kunga?</b>\n'
+        'Tugmani tanlang yoki yozing: <code>25.11</code>, <code>ertaga 15:00</code>, '
+        '<code>har hafta</code>'
+    )
+
+
+def title_error(title: str) -> str | None:
+    """Nom yaroqsiz bo'lsa — foydalanuvchiga tushunarli sabab."""
     if not title:
-        await message.answer("Vazifa nomi bo'sh bo'lmasin. Qaytadan yozing:")
-        return
+        return "Vazifa nomi bo'sh bo'lmasin. Qaytadan yozing:"
+    if title in MENU_BUTTONS:
+        return 'Bu menyu tugmasi. Vazifa nomini matn qilib yozing:'
     if len(title) < MIN_TITLE_LENGTH or not any(char.isalpha() for char in title):
-        await message.answer(
+        return (
             'Vazifa nomini tushunarli yozing (kamida 3 belgi, harflar bilan), '
             'masalan: <i>Hisobot topshirish</i>'
         )
-        return
-    if title in MENU_BUTTONS:
-        await message.answer('Bu menyu tugmasi. Vazifa nomini matn qilib yozing:')
-        return
     if len(title) > MAX_TITLE_LENGTH:
-        await message.answer(
+        return (
             f'Vazifa nomi {MAX_TITLE_LENGTH} belgidan oshmasin '
             f'(hozir {len(title)} ta). Qaytadan yozing:'
         )
+    return None
+
+
+async def accept_title(
+    message: Message,
+    state: FSMContext,
+    db: Database,
+    clock: Clock,
+    digest_hour: int,
+    raw: str,
+) -> None:
+    """Yangi vazifa nomi. Matnda muddat ham bo'lsa ("ertaga 15:00 Hisobot") — qadamlar qisqaradi."""
+    now = clock.now()
+    text = ' '.join(raw.split())
+    error = title_error(text) if text in MENU_BUTTONS or not text else None
+    due = None
+    if error is None:
+        try:
+            text, due = split_title_due(text, now)
+        except DueParseError as parse_error:
+            error = str(parse_error)
+    error = error or title_error(text)
+    if error:
+        await message.answer(error)
         return
-    await state.update_data(title=title)
-    await state.set_state(AddTask.due)
-    await message.answer(f'📝 {html.quote(title)}\n\n{DUE_PROMPT}', reply_markup=due_menu)
+
+    await state.set_data({'title': text})
+    if due is None:
+        await state.set_state(AddTask.day)
+        await message.answer(day_prompt(text), reply_markup=day_menu)
+        return
+    hour = await db.digest_hour_for(message.from_user.id, digest_hour)
+    if due.at is not None:
+        await finish_add(message, state, db, now, hour, due.day, due.at, due.repeat)
+    else:
+        await ask_time(message, state, due, now, hour)
 
 
 @router.message(AddTask.title, F.text)
-async def add_task_title(message: Message, state: FSMContext) -> None:
-    await accept_title(message, state, message.text)
+async def add_task_title(
+    message: Message,
+    state: FSMContext,
+    db: Database,
+    clock: Clock,
+    digest_hour: int = DEFAULT_DIGEST_HOUR,
+) -> None:
+    await accept_title(message, state, db, clock, digest_hour, message.text)
 
 
-@router.message(AddTask.due, F.text)
-async def add_task_due(message: Message, state: FSMContext, db: Database, clock: Clock) -> None:
-    now = clock.now()
-    due_date = due_time = repeat = None
-    if message.text != NO_DUE:
-        text = 'har kuni' if message.text == EVERY_DAY else message.text
-        try:
-            due = parse_due(text, now)
-        except DueParseError as error:
-            await message.answer(str(error))
+async def ask_time(message: Message, state: FSMContext, due, now: datetime, hour: int) -> None:
+    """3-qadamga o'tish: «Soat nechada eslatay?» va faqat yetib boradigan variantlar."""
+    await state.update_data(day=due.day.isoformat(), repeat=due.repeat)
+    await state.set_state(AddTask.time)
+    with_morning = due.repeat is not None or morning_reachable(due.day, now, hour)
+    when = f'🔁 {REPEAT_LABEL[due.repeat]}' if due.repeat else format_due(due.day, None, now.date())
+    hint = (
+        f"\n☀️ «Ertalabki rejada» — alohida eslatmasiz, {hour:02d}:00 dagi ro'yxatda"
+        if with_morning
+        else ''
+    )
+    await message.answer(
+        f'📅 {when}\n\n⏰ <b>Soat nechada eslatay?</b>\n'
+        f'Tugmani tanlang yoki vaqtni yozing, masalan: <code>16:30</code>{hint}',
+        reply_markup=time_menu(time_options(due.day, due.repeat, now), with_morning),
+    )
+
+
+async def finish_add(
+    message: Message,
+    state: FSMContext,
+    db: Database,
+    now: datetime,
+    digest_hour: int,
+    day: date | None,
+    at: time | None,
+    repeat: str | None,
+) -> None:
+    """Vazifani saqlaydi (yoki muddatini almashtiradi) va eslatma qachon kelishini aytadi."""
+    data = await state.get_data()
+    title, edit_id = data['title'], data.get('edit_id')
+    user = message.from_user
+    if edit_id is not None:
+        if not await db.update_due(edit_id, user.id, day, at, repeat):
+            await state.clear()
+            await message.answer(
+                "Vazifa topilmadi — u bajarilgan yoki o'chirilgan", reply_markup=main_menu
+            )
             return
-        due_date, due_time, repeat = due.day, due.at, due.repeat
-
-    title = (await state.get_data())['title']
-    await db.add_user(message.from_user.id, message.from_user.full_name)
-    await db.add_task(message.from_user.id, title, due_date, due_time, repeat)
+        header = f"✏️ Muddat o'zgartirildi: {html.quote(title)}"
+    else:
+        await db.add_user(user.id, user.full_name)
+        await db.add_task(user.id, title, day, at, repeat)
+        header = f"✅ Qo'shildi: {html.quote(title)}"
     await state.clear()
+    note = reminder_note(day, at, repeat, now.date(), digest_hour)
+    await message.answer(f'{header}\n{note}', reply_markup=main_menu)
 
-    text = f"✅ Qo'shildi: {html.quote(title)}"
-    if due_date:
-        due_label = format_due(due_date, due_time, now.date(), repeat)
-        if due_time:
-            text += f'\n⏰ {due_label} — shu vaqtda eslataman'
-        else:
-            text += f'\n📅 Muddat: {due_label} (ertalabki rejada)'
+
+@router.message(AddTask.day, F.text)
+async def add_task_day(
+    message: Message,
+    state: FSMContext,
+    db: Database,
+    clock: Clock,
+    digest_hour: int = DEFAULT_DIGEST_HOUR,
+) -> None:
+    """2-qadam: kun. To'liq muddat yozilsa ("ertaga 15:00") — darhol saqlanadi."""
+    now = clock.now()
+    hour = await db.digest_hour_for(message.from_user.id, digest_hour)
+    if message.text == NO_DUE:
+        await finish_add(message, state, db, now, hour, None, None, None)
+        return
+    text = 'har kuni' if message.text == EVERY_DAY else message.text
+    try:
+        due = parse_due(text, now)
+    except DueParseError as error:
+        await message.answer(str(error))
+        return
+    if due.at is not None:
+        await finish_add(message, state, db, now, hour, due.day, due.at, due.repeat)
+        return
+    await ask_time(message, state, due, now, hour)
+
+
+@router.message(AddTask.time, F.text)
+async def add_task_time(
+    message: Message,
+    state: FSMContext,
+    db: Database,
+    clock: Clock,
+    digest_hour: int = DEFAULT_DIGEST_HOUR,
+) -> None:
+    """3-qadam: soat. Eslatma albatta yetib boradigan vaqtgina qabul qilinadi."""
+    now = clock.now()
+    digest_hour = await db.digest_hour_for(message.from_user.id, digest_hour)
+    data = await state.get_data()
+    day, repeat = date.fromisoformat(data['day']), data.get('repeat')
+
+    if message.text == MORNING:
+        day = first_morning(day, repeat, now, digest_hour)
+        if not morning_reachable(day, now, digest_hour):
+            await message.answer(
+                f"Bugungi ertalabki reja ({digest_hour:02d}:00) o'tib ketgan — "
+                'eslatma yetib bormaydi. Soatni tanlang:'
+            )
+            return
+        await finish_add(message, state, db, now, digest_hour, day, None, repeat)
+        return
+
+    if message.text in RELATIVE_TIMES:
+        when = now + RELATIVE_TIMES[message.text]
+        await finish_add(message, state, db, now, digest_hour, when.date(), when.time(), repeat)
+        return
+
+    try:
+        at = parse_clock(message.text)
+        if at is None:
+            raise DueParseError('Vaqtni tugmadan tanlang yoki yozing, masalan: <code>16:30</code>')
+        day = resolve_time(day, at, repeat, now)
+    except DueParseError as error:
+        await message.answer(str(error))
+        return
+    await finish_add(message, state, db, now, digest_hour, day, at, repeat)
+
+
+@router.message(RenameTask.title, F.text)
+async def rename_title(message: Message, state: FSMContext, db: Database) -> None:
+    title = ' '.join(message.text.split())
+    error = title_error(title)
+    if error:
+        await message.answer(error)
+        return
+    task_id = (await state.get_data())['edit_id']
+    await state.clear()
+    if await db.rename_task(task_id, message.from_user.id, title):
+        text = f"✏️ Nom o'zgartirildi: {html.quote(title)}"
+    else:
+        text = "Vazifa topilmadi — u bajarilgan yoki o'chirilgan"
     await message.answer(text, reply_markup=main_menu)
 
 
 @router.message(AddTask.title)
-@router.message(AddTask.due)
+@router.message(AddTask.day)
+@router.message(AddTask.time)
+@router.message(RenameTask.title)
 async def add_task_wrong(message: Message) -> None:
     await message.answer("Iltimos, matn ko'rinishida yozing")
 
@@ -287,6 +448,35 @@ async def task_done(
     following = await complete_task(db, task, now)
     await refresh_list(callback, db, clock, callback_data.page)
     await callback.answer(('✅ Bajarildi' + next_text(following, now.date())).strip())
+
+
+@router.callback_query(TaskCallback.filter(F.action == 'edit'))
+async def task_edit(
+    callback: CallbackQuery, callback_data: TaskCallback, state: FSMContext, db: Database
+) -> None:
+    """Kartadagi «Vaqtini o'zgartirish» — qo'shishdagi kun → soat qadamlari qayta so'raladi."""
+    task = await open_task(callback, callback_data, db)
+    if task is None:
+        return
+    await state.set_data({'title': task.title, 'edit_id': task.id})
+    await state.set_state(AddTask.day)
+    await callback.message.answer(day_prompt(task.title), reply_markup=day_menu)
+    await callback.answer()
+
+
+@router.callback_query(TaskCallback.filter(F.action == 'rename'))
+async def task_rename(
+    callback: CallbackQuery, callback_data: TaskCallback, state: FSMContext, db: Database
+) -> None:
+    task = await open_task(callback, callback_data, db)
+    if task is None:
+        return
+    await state.set_data({'edit_id': task.id})
+    await state.set_state(RenameTask.title)
+    await callback.message.answer(
+        f'✏️ Hozirgi nom: {html.quote(task.title)}\n\nYangi nomni yozing:', reply_markup=cancel_menu
+    )
+    await callback.answer()
 
 
 @router.callback_query(TaskCallback.filter(F.action == 'tomorrow'))
@@ -384,9 +574,15 @@ async def unknown_command(message: Message) -> None:
 
 
 @router.message(StateFilter(None), F.text)
-async def quick_add(message: Message, state: FSMContext) -> None:
-    """Menyusiz tez qo'shish: oddiy yozilgan matn — yangi vazifa nomi."""
-    await accept_title(message, state, message.text)
+async def quick_add(
+    message: Message,
+    state: FSMContext,
+    db: Database,
+    clock: Clock,
+    digest_hour: int = DEFAULT_DIGEST_HOUR,
+) -> None:
+    """Menyusiz tez qo'shish: "Hisobot ertaga 15:00" — bitta xabarda nom va muddat."""
+    await accept_title(message, state, db, clock, digest_hour, message.text)
 
 
 @router.message(StateFilter(None))

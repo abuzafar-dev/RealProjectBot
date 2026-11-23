@@ -140,3 +140,39 @@ async def test_network_error_retried_without_blocking_others(db, bot, clock):
         c for c in bot.send_message.call_args_list if c.args[0] == 1 and 'Eslatma' in c.args[1]
     ]
     assert len(reminders_to_1) == 2  # 1-urinish (xato) + qayta yuborish
+
+
+async def test_personal_digest_hour(db, user, bot, clock):
+    await db.set_digest_hour(user, 11)
+    await db.add_task(user, 'Bugungi', date(2026, 11, 20))
+    await tick(bot, db, clock, DIGEST_HOUR)  # 10:00 — umumiy 8 o'tgan, lekin shaxsiy 11
+    bot.send_message.assert_not_awaited()
+    clock.current = datetime(2026, 11, 20, 11, 0)
+    await tick(bot, db, clock, DIGEST_HOUR)
+    assert 'Bugungi reja' in sent_texts(bot)[0]
+
+
+async def test_weekly_report_on_sunday_evening(db, user, bot, clock):
+    for day in (16, 17, 18):  # dushanba–chorshanba
+        task_id = await db.add_task(user, f'Ish {day}')
+        await db.mark_done(task_id, user, datetime(2026, 11, day, 12, 0))
+    await db.add_task(user, 'Keyingi', date(2026, 11, 25))
+
+    clock.current = datetime(2026, 11, 22, 19, 59)  # yakshanba, hali erta
+    await tick(bot, db, clock, DIGEST_HOUR)
+    assert not any('Haftalik' in t for t in sent_texts(bot))
+
+    clock.current = datetime(2026, 11, 22, 20, 0)
+    await tick(bot, db, clock, DIGEST_HOUR)
+    await tick(bot, db, clock, DIGEST_HOUR)
+    [report] = [t for t in sent_texts(bot) if 'Haftalik' in t]
+    assert '16.11–22.11' in report and 'Bajarildi: 3 ta' in report
+    assert 'Keyingi 7 kunga: 1 ta' in report
+
+
+async def test_weekly_report_can_be_disabled(db, user, bot, clock):
+    await db.add_task(user, 'A')
+    await db.toggle_weekly(user)
+    clock.current = datetime(2026, 11, 22, 20, 0)
+    await tick(bot, db, clock, DIGEST_HOUR)
+    assert not any('Haftalik' in t for t in sent_texts(bot))

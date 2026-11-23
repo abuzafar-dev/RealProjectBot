@@ -10,6 +10,7 @@ from bot.clock import Clock
 from bot.database import Database
 from bot.handlers import tasks
 from bot.keyboards import CANCEL, STATS, main_menu
+from bot.progress import streak, streak_text, week_start
 from bot.texts import WELCOME_IMAGE, welcome_text
 
 router = Router(name='start')
@@ -22,17 +23,22 @@ HELP_TEXT = (
     '<b>Buyruqlar</b>\n'
     '/start — bosh menyu\n'
     '/today — bugungi reja\n'
+    '/settings — sozlamalar\n'
     '/help — yordam\n'
     '/cancel — amalni bekor qilish\n\n'
     '<b>Qanday ishlaydi</b>\n'
-    "1. Vazifani shunchaki yozib yuboring (yoki «➕ Vazifa qo'shish») → muddatni tanlang\n"
-    '2. <code>ertaga 15:00</code> kabi vaqt yozsangiz — aynan shu vaqtda ⏰ eslataman. '
-    'Eslatmada ⏰ tugmalari bilan +15 daqiqa, +1 soat yoki ertagaga kechiktirish mumkin\n'
-    '3. Faqat sana yozsangiz (<code>ertaga</code>, <code>25.11</code>) — '
-    "o'sha kuni ertalab ☀️ rejada ko'rsataman\n"
+    "1. Vazifani shunchaki yozib yuboring (yoki «➕ Vazifa qo'shish»). Bir yo'la: "
+    '<code>Hisobot ertaga 15:00</code> — savolsiz saqlanadi\n'
+    '2. Kunini tanlang (Bugun, Ertaga, <code>25.11</code>), keyin — soat nechada eslatishni. '
+    'Aynan shu vaqtda ⏰ eslataman; eslatmada +15 daqiqa, +1 soat yoki ertagaga '
+    'kechiktirish tugmalari bor\n'
+    "3. Shoshilinch bo'lmasa — «☀️ Ertalabki rejada»: o'sha kuni ertalab ro'yxatda "
+    "ko'rsataman. <code>ertaga 15:00</code> deb bir yo'la yozsangiz ham bo'ladi\n"
     '4. <code>har kuni 09:00</code> yoki <code>har hafta</code> — 🔁 takrorlanuvchi vazifa: '
     'bajarilganda keyingisi avtomatik yaratiladi\n'
-    "5. Ro'yxatda ✅ — bajarildi, 🗑 — o'chirish, 🧹 — bajarilganlarni tozalash"
+    "5. 📋 Ro'yxatda raqamni bosing — vazifa kartasi: bajarildi, vaqt/nomni o'zgartirish, "
+    "ertaga ko'chirish, o'chirish\n"
+    '6. ⚙️ Sozlamalar — ertalabki reja soati va har yakshanbagi 📈 haftalik hisobot'
 )
 
 
@@ -99,15 +105,21 @@ async def admin_handler(message: Message, db: Database, admin_id: int | None = N
 
 @router.message(F.text == STATS)
 async def stats_handler(message: Message, db: Database, clock: Clock) -> None:
-    stats = await db.get_stats(message.from_user.id)
-    overdue = await db.count_overdue(message.from_user.id, clock.now().date())
+    user_id = message.from_user.id
+    today = clock.now().date()
+    stats = await db.get_stats(user_id)
+    overdue = await db.count_overdue(user_id, today)
+    done_today = await db.count_done_since(user_id, today)
+    done_week = await db.count_done_since(user_id, week_start(today))
+    days = streak(await db.get_done_days(user_id), today)
     filled = stats.percent // 10
     bar = '▰' * filled + '▱' * (10 - filled)
     await message.answer(
         '📊 <b>Statistika</b>\n\n'
-        f'Jami vazifalar: {stats.total}\n'
-        f'Bajarilgan: {stats.done}\n'
-        f'Qolgan: {stats.left}\n'
-        f"Muddati o'tgan: {overdue}\n\n"
+        f'✅ Bugun bajarildi: {done_today}\n'
+        f'📅 Shu hafta: {done_week}\n'
+        f'{streak_text(days)}\n\n'
+        f'Jami: {stats.total} · bajarilgan {stats.done} · qolgan {stats.left}\n'
+        f"⚠️ Muddati o'tgan: {overdue}\n\n"
         f'{bar} {stats.percent}%'
     )

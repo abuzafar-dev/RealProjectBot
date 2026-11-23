@@ -10,7 +10,10 @@ CREATE TABLE IF NOT EXISTS users (
     id         INTEGER PRIMARY KEY,
     full_name  TEXT    NOT NULL,
     created_at TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_digest TEXT                -- ertalabki reja oxirgi yuborilgan sana
+    last_digest TEXT,               -- ertalabki reja oxirgi yuborilgan sana
+    digest_hour INTEGER,            -- shaxsiy reja soati; NULL — umumiy (DIGEST_HOUR)
+    weekly      INTEGER NOT NULL DEFAULT 1,  -- haftalik hisobot yoqilganmi
+    last_weekly TEXT                -- haftalik hisobot oxirgi yuborilgan sana
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -37,6 +40,9 @@ MIGRATIONS = [
     ('tasks', 'reminded', 'INTEGER NOT NULL DEFAULT 0'),
     ('users', 'last_digest', 'TEXT'),
     ('tasks', 'repeat', 'TEXT'),
+    ('users', 'digest_hour', 'INTEGER'),
+    ('users', 'weekly', 'INTEGER NOT NULL DEFAULT 1'),
+    ('users', 'last_weekly', 'TEXT'),
 ]
 
 
@@ -65,6 +71,19 @@ class Stats:
     @property
     def percent(self) -> int:
         return round(self.done * 100 / self.total) if self.total else 0
+
+
+@dataclass(frozen=True, slots=True)
+class UserSettings:
+    digest_hour: int | None  # None — umumiy soat
+    weekly: bool
+
+
+@dataclass(frozen=True, slots=True)
+class WeekSummary:
+    done: int
+    overdue: int
+    planned: int  # kelgusi 7 kunga rejalashtirilgan ochiq vazifalar
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +161,25 @@ class Database:
             (user_id, full_name),
         )
 
+    async def get_settings(self, user_id: int) -> UserSettings:
+        async with self.conn.execute(
+            'SELECT digest_hour, weekly FROM users WHERE id = ?', (user_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return UserSettings(digest_hour=None, weekly=True)
+        return UserSettings(digest_hour=row['digest_hour'], weekly=bool(row['weekly']))
+
+    async def digest_hour_for(self, user_id: int, default: int) -> int:
+        return (await self.get_settings(user_id)).digest_hour or default
+
+    async def set_digest_hour(self, user_id: int, hour: int) -> None:
+        await self._write('UPDATE users SET digest_hour = ? WHERE id = ?', (hour, user_id))
+
+    async def toggle_weekly(self, user_id: int) -> bool:
+        await self._write('UPDATE users SET weekly = 1 - weekly WHERE id = ?', (user_id,))
+        return (await self.get_settings(user_id)).weekly
+
     async def count_users(self) -> int:
         async with self.conn.execute('SELECT COUNT(*) FROM users') as cursor:
             (count,) = await cursor.fetchone()
@@ -198,13 +236,39 @@ class Database:
             row = await cursor.fetchone()
         return _to_task(row) if row else None
 
-    async def mark_done(self, task_id: int, user_id: int) -> bool:
+    async def mark_done(self, task_id: int, user_id: int, now: datetime | None = None) -> bool:
+        """now — foydalanuvchi vaqt zonasidagi vaqt (statistika kunlari to'g'ri chiqishi uchun)."""
+        done_at = now.strftime('%Y-%m-%d %H:%M:%S') if now else None
         changed = await self._write(
-            'UPDATE tasks SET is_done = 1, done_at = CURRENT_TIMESTAMP '
+            'UPDATE tasks SET is_done = 1, done_at = COALESCE(?, CURRENT_TIMESTAMP) '
             'WHERE id = ? AND user_id = ? AND is_done = 0',
-            (task_id, user_id),
+            (done_at, task_id, user_id),
         )
         return changed > 0
+
+    async def rename_task(self, task_id: int, user_id: int, title: str) -> bool:
+        changed = await self._write(
+            'UPDATE tasks SET title = ? WHERE id = ? AND user_id = ? AND is_done = 0',
+            (title, task_id, user_id),
+        )
+        return changed > 0
+
+    async def count_done_since(self, user_id: int, since: date) -> int:
+        async with self.conn.execute(
+            'SELECT COUNT(*) FROM tasks WHERE user_id = ? AND is_done = 1 AND done_at >= ?',
+            (user_id, since.isoformat()),
+        ) as cursor:
+            (count,) = await cursor.fetchone()
+        return count
+
+    async def get_done_days(self, user_id: int) -> set[date]:
+        """Vazifa bajarilgan kunlar (ketma-ketlikni hisoblash uchun)."""
+        async with self.conn.execute(
+            'SELECT DISTINCT substr(done_at, 1, 10) FROM tasks '
+            'WHERE user_id = ? AND is_done = 1 AND done_at IS NOT NULL',
+            (user_id,),
+        ) as cursor:
+            return {date.fromisoformat(row[0]) for row in await cursor.fetchall()}
 
     async def reschedule(
         self, task_id: int, user_id: int, due_date: date, due_time: time | None
@@ -216,6 +280,28 @@ class Database:
             (
                 due_date.isoformat(),
                 due_time.strftime('%H:%M') if due_time else None,
+                task_id,
+                user_id,
+            ),
+        )
+        return changed > 0
+
+    async def update_due(
+        self,
+        task_id: int,
+        user_id: int,
+        due_date: date | None,
+        due_time: time | None,
+        repeat: str | None,
+    ) -> bool:
+        """Muddatni to'liq almashtirish (kartadagi «Vaqtini o'zgartirish»)."""
+        changed = await self._write(
+            'UPDATE tasks SET due_date = ?, due_time = ?, repeat = ?, reminded = 0 '
+            'WHERE id = ? AND user_id = ? AND is_done = 0',
+            (
+                due_date.isoformat() if due_date else None,
+                due_time.strftime('%H:%M') if due_time else None,
+                repeat,
                 task_id,
                 user_id,
             ),
@@ -274,14 +360,15 @@ class Database:
     async def mark_reminded(self, task_id: int) -> None:
         await self._write('UPDATE tasks SET reminded = 1 WHERE id = ?', (task_id,))
 
-    async def get_digest_users(self, today: date) -> list[int]:
-        """Bugun reja olmagan va bugungi yoki muddati o'tgan vazifasi bor foydalanuvchilar."""
-        day = today.isoformat()
+    async def get_digest_users(self, now: datetime, default_hour: int) -> list[int]:
+        """Reja soati kelgan, bugun reja olmagan va bugungi/muddati o'tgan vazifasi borlar."""
+        day = now.date().isoformat()
         async with self.conn.execute(
             'SELECT DISTINCT u.id FROM users u JOIN tasks t ON t.user_id = u.id '
             'WHERE t.is_done = 0 AND t.due_date <= ? '
-            'AND (u.last_digest IS NULL OR u.last_digest < ?)',
-            (day, day),
+            'AND (u.last_digest IS NULL OR u.last_digest < ?) '
+            'AND COALESCE(u.digest_hour, ?) <= ?',
+            (day, day, default_hour, now.hour),
         ) as cursor:
             return [row['id'] for row in await cursor.fetchall()]
 
@@ -292,6 +379,36 @@ class Database:
             (user_id, today.isoformat()),
         ) as cursor:
             return [_to_task(row) for row in await cursor.fetchall()]
+
+    # --- haftalik hisobot ---
+
+    async def get_weekly_users(self, today: date) -> list[int]:
+        """Hisobot yoqilgan, bu hafta hali olmagan va kamida bitta vazifasi borlar."""
+        async with self.conn.execute(
+            'SELECT u.id FROM users u WHERE u.weekly = 1 '
+            'AND (u.last_weekly IS NULL OR u.last_weekly < ?) '
+            'AND EXISTS (SELECT 1 FROM tasks t WHERE t.user_id = u.id)',
+            (today.isoformat(),),
+        ) as cursor:
+            return [row['id'] for row in await cursor.fetchall()]
+
+    async def get_week_summary(self, user_id: int, week_start: date, today: date) -> WeekSummary:
+        day = today.isoformat()
+        async with self.conn.execute(
+            'SELECT '
+            '(SELECT COUNT(*) FROM tasks WHERE user_id = ? AND is_done = 1 AND done_at >= ?), '
+            '(SELECT COUNT(*) FROM tasks WHERE user_id = ? AND is_done = 0 AND due_date < ?), '
+            '(SELECT COUNT(*) FROM tasks WHERE user_id = ? AND is_done = 0 '
+            "AND due_date > ? AND due_date <= date(?, '+7 days'))",
+            (user_id, week_start.isoformat(), user_id, day, user_id, day, day),
+        ) as cursor:
+            done, overdue, planned = await cursor.fetchone()
+        return WeekSummary(done=done, overdue=overdue, planned=planned)
+
+    async def set_weekly_sent(self, user_id: int, today: date) -> None:
+        await self._write(
+            'UPDATE users SET last_weekly = ? WHERE id = ?', (today.isoformat(), user_id)
+        )
 
     async def set_digest_sent(self, user_id: int, today: date) -> None:
         await self._write(

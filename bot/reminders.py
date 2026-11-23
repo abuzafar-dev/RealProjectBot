@@ -21,6 +21,7 @@ from bot.clock import Clock
 from bot.database import Database, Task
 from bot.due import format_due
 from bot.keyboards import remind_keyboard
+from bot.progress import WEEKLY_DAY, WEEKLY_HOUR, streak, week_start, weekly_text
 
 logger = logging.getLogger(__name__)
 
@@ -72,11 +73,18 @@ async def tick(bot: Bot, db: Database, clock: Clock, digest_hour: int) -> None:
         if await _send(bot, task.user_id, text, reply_markup=remind_keyboard(task.id)):
             await db.mark_reminded(task.id)
 
-    if now.hour >= digest_hour:
-        for user_id in await db.get_digest_users(today):
-            tasks = await db.get_digest_tasks(user_id, today)
-            if await _send(bot, user_id, digest_text(tasks, today)):
-                await db.set_digest_sent(user_id, today)
+    # Har bir foydalanuvchining o'z reja soati bo'lishi mumkin — filtr SQL'da
+    for user_id in await db.get_digest_users(now, digest_hour):
+        tasks = await db.get_digest_tasks(user_id, today)
+        if await _send(bot, user_id, digest_text(tasks, today)):
+            await db.set_digest_sent(user_id, today)
+
+    if today.weekday() == WEEKLY_DAY and now.hour >= WEEKLY_HOUR:
+        for user_id in await db.get_weekly_users(today):
+            summary = await db.get_week_summary(user_id, week_start(today), today)
+            days = streak(await db.get_done_days(user_id), today)
+            if await _send(bot, user_id, weekly_text(summary, days, today)):
+                await db.set_weekly_sent(user_id, today)
 
 
 async def run_reminders(bot: Bot, db: Database, clock: Clock, digest_hour: int) -> None:

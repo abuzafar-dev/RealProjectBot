@@ -8,20 +8,22 @@ ADD_TASK = "➕ Vazifa qo'shish"
 MY_TASKS = '📋 Vazifalarim'
 STATS = '📊 Statistika'
 TODAY_PLAN = '☀️ Bugungi reja'
+SETTINGS = '⚙️ Sozlamalar'
 CANCEL = '❌ Bekor qilish'
 TODAY = 'Bugun'
 TOMORROW = 'Ertaga'
 NO_DUE = '⏭ Muddatsiz'
 EVERY_DAY = '🔁 Har kuni'
+MORNING = '☀️ Ertalabki rejada'
 
 # Menyu tugmalari — vazifa nomi sifatida qabul qilinmaydi
-MENU_BUTTONS = {ADD_TASK, MY_TASKS, STATS, TODAY_PLAN, CANCEL}
+MENU_BUTTONS = {ADD_TASK, MY_TASKS, STATS, TODAY_PLAN, SETTINGS, CANCEL}
 
 main_menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text=ADD_TASK)],
         [KeyboardButton(text=MY_TASKS), KeyboardButton(text=TODAY_PLAN)],
-        [KeyboardButton(text=STATS)],
+        [KeyboardButton(text=STATS), KeyboardButton(text=SETTINGS)],
     ],
     resize_keyboard=True,
 )
@@ -32,7 +34,7 @@ cancel_menu = ReplyKeyboardMarkup(
 )
 
 
-due_menu = ReplyKeyboardMarkup(
+day_menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text=TODAY), KeyboardButton(text=TOMORROW)],
         [KeyboardButton(text=EVERY_DAY), KeyboardButton(text=NO_DUE)],
@@ -43,7 +45,7 @@ due_menu = ReplyKeyboardMarkup(
 
 
 class TaskCallback(CallbackData, prefix='task'):
-    action: str  # 'open' | 'done' | 'tomorrow' | 'delete'
+    action: str  # 'open' | 'done' | 'edit' | 'rename' | 'tomorrow' | 'delete'
     task_id: int
     page: int = 0
 
@@ -65,6 +67,28 @@ class ClearDoneCallback(CallbackData, prefix='clear'):
     pass
 
 
+class SettingsCallback(CallbackData, prefix='set'):
+    action: str  # 'hour' | 'weekly'
+    value: int = 0
+
+
+DIGEST_HOURS = [6, 7, 8, 9, 10]
+
+
+def settings_keyboard(digest_hour: int, weekly: bool) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for hour in DIGEST_HOURS:
+        mark = '✓ ' if hour == digest_hour else ''
+        builder.button(
+            text=f'{mark}{hour:02d}:00', callback_data=SettingsCallback(action='hour', value=hour)
+        )
+    weekly_text = '✅ yoqilgan' if weekly else "❌ o'chiq"
+    weekly_text = f'📈 Haftalik hisobot: {weekly_text}'
+    builder.button(text=weekly_text, callback_data=SettingsCallback(action='weekly'))
+    builder.adjust(len(DIGEST_HOURS), 1)
+    return builder.as_markup()
+
+
 SNOOZE_OPTIONS = [('+15 daq', 15), ('+1 soat', 60), ('Ertaga', 0)]
 
 
@@ -80,6 +104,21 @@ def remind_keyboard(task_id: int) -> InlineKeyboardMarkup:
 
 
 NUMBERS_PER_ROW = 5
+
+
+def time_menu(options: list[str], with_morning: bool) -> ReplyKeyboardMarkup:
+    """«Soat nechada?» qadami: nisbiy vaqtlar, soatlar (4 tadan), ertalabki reja, bekor qilish."""
+    relative = [o for o in options if not o[0].isdigit()]
+    clocks = [o for o in options if o[0].isdigit()]
+    rows = []
+    if relative:
+        rows.append([KeyboardButton(text=o) for o in relative])
+    if clocks:
+        rows.append([KeyboardButton(text=o) for o in clocks])
+    if with_morning:
+        rows.append([KeyboardButton(text=MORNING)])
+    rows.append([KeyboardButton(text=CANCEL)])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
 def tasks_keyboard(
@@ -124,6 +163,8 @@ def task_card_keyboard(task_id: int, page: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for text, action in [
         ('✅ Bajarildi', 'done'),
+        ("⏰ Vaqtini o'zgartirish", 'edit'),
+        ("✏️ Nomini o'zgartirish", 'rename'),
         ('📅 Ertaga', 'tomorrow'),
         ("🗑 O'chirish", 'delete'),
     ]:
@@ -131,5 +172,5 @@ def task_card_keyboard(task_id: int, page: int) -> InlineKeyboardMarkup:
             text=text, callback_data=TaskCallback(action=action, task_id=task_id, page=page)
         )
     builder.button(text="◀️ Ro'yxatga qaytish", callback_data=PageCallback(page=page))
-    builder.adjust(1, 2, 1)
+    builder.adjust(1, 2, 2, 1)
     return builder.as_markup()

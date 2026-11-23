@@ -2,7 +2,17 @@ from datetime import date, datetime, time
 
 import pytest
 
-from bot.due import Due, DueParseError, format_due, next_occurrence, parse_due
+from bot.due import (
+    Due,
+    DueParseError,
+    format_due,
+    morning_reachable,
+    next_occurrence,
+    parse_due,
+    reminder_note,
+    resolve_time,
+    time_options,
+)
 
 NOW = datetime(2026, 11, 20, 10, 0)
 TODAY = NOW.date()
@@ -81,3 +91,42 @@ def test_next_occurrence_skips_missed_days():
 
 def test_format_due_repeat():
     assert format_due(TODAY, time(9, 0), TODAY, 'daily') == 'bugun 09:00 🔁 har kuni'
+
+
+def test_time_options_today_only_future():
+    evening = datetime(2026, 11, 20, 20, 7)
+    assert time_options(TODAY, None, evening) == ['⏱ 1 soatdan keyin', '⏱ 3 soatdan keyin', '21:00']
+    # boshqa kun yoki takrorlanuvchida barcha soatlar, nisbiy vaqtlarsiz
+    assert time_options(date(2026, 11, 21), None, evening) == ['09:00', '13:00', '18:00', '21:00']
+    assert time_options(TODAY, 'daily', evening)[0] == '09:00'
+
+
+def test_morning_reachable():
+    assert morning_reachable(TODAY, datetime(2026, 11, 20, 7, 30), 8)
+    assert not morning_reachable(TODAY, datetime(2026, 11, 20, 8, 0), 8)
+    assert morning_reachable(date(2026, 11, 21), datetime(2026, 11, 20, 23, 0), 8)
+
+
+def test_resolve_time():
+    assert resolve_time(TODAY, time(9, 0), 'weekly', NOW) == date(2026, 11, 27)
+    with pytest.raises(DueParseError):
+        resolve_time(TODAY, time(9, 0), None, NOW)
+
+
+def test_reminder_note():
+    assert reminder_note(None, None, None, TODAY, 8).startswith('📝 Muddatsiz')
+    assert reminder_note(TODAY, time(21), None, TODAY, 8) == (
+        '⏰ bugun 21:00 — aynan shu vaqtda eslataman'
+    )
+    assert reminder_note(date(2026, 11, 21), None, 'daily', TODAY, 8) == (
+        '☀️ ertaga 🔁 har kuni — ertalab 08:00 dagi rejada eslataman'
+    )
+
+
+def test_streak():
+    from bot.progress import streak
+
+    days = {date(2026, 11, 18), date(2026, 11, 19), date(2026, 11, 20)}
+    assert streak(days, TODAY) == 3
+    assert streak(days, date(2026, 11, 21)) == 3  # bugun hali bajarmagan — kechadan sanaladi
+    assert streak(days, date(2026, 11, 22)) == 0

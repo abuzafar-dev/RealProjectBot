@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, datetime, time
 from unittest.mock import AsyncMock
 
 import pytest
@@ -6,12 +6,14 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import SendPhoto
 
 from bot import texts
-from bot.handlers import start, tasks
+from bot.handlers import settings, start, tasks
 from bot.keyboards import (
+    MORNING,
     MY_TASKS,
     NO_DUE,
     PageCallback,
     RemindCallback,
+    SettingsCallback,
     SnoozeCallback,
     TaskCallback,
 )
@@ -54,9 +56,9 @@ def test_profile_texts_fit_telegram_limits():
 
 
 async def add_flow(state, db, clock, make_message, title, due):
-    await tasks.add_task_title(make_message(title), state)
+    await tasks.add_task_title(make_message(title), state, db, clock)
     message = make_message(due)
-    await tasks.add_task_due(message, state, db, clock)
+    await tasks.add_task_day(message, state, db, clock)
     return message
 
 
@@ -73,21 +75,21 @@ async def test_add_task_with_time(db, state, clock, make_message):
     message = await add_flow(state, db, clock, make_message, 'Hisobot', 'ertaga 15:00')
     [task] = await db.get_tasks(1)
     assert (task.due_date, task.due_time) == (date(2026, 11, 21), time(15, 0))
-    assert 'ertaga 15:00 — shu vaqtda eslataman' in message.answer.call_args.args[0]
+    assert 'ertaga 15:00 — aynan shu vaqtda eslataman' in message.answer.call_args.args[0]
 
 
 async def test_bad_due_keeps_state(db, state, clock, make_message):
-    await tasks.add_task_title(make_message('Hisobot'), state)
+    await tasks.add_task_title(make_message('Hisobot'), state, db, clock)
     message = make_message('kecha')
-    await tasks.add_task_due(message, state, db, clock)
-    assert await state.get_state() == AddTask.due  # qayta yozishi mumkin
+    await tasks.add_task_day(message, state, db, clock)
+    assert await state.get_state() == AddTask.day  # qayta yozishi mumkin
     assert await db.get_tasks(1) == []
     assert 'tushunmadim' in message.answer.call_args.args[0]
 
 
 @pytest.mark.parametrize('text', ['a' * 201, '   ', 'ab', '12345', '...!!!', '😀😀😀'])
-async def test_invalid_title_rejected(state, make_message, text):
-    await tasks.add_task_title(make_message(text), state)
+async def test_invalid_title_rejected(db, state, clock, make_message, text):
+    await tasks.add_task_title(make_message(text), state, db, clock)
     assert await state.get_state() is None
 
 
@@ -145,7 +147,14 @@ async def test_open_task_card(db, user, clock, make_callback):
     text = callback.message.edit_text.call_args.args[0]
     assert '<b>Hisobot</b>' in text and '2 kun oldin' in text and 'har kuni' in text
     markup = callback.message.edit_text.call_args.kwargs['reply_markup']
-    assert buttons(markup) == ['✅ Bajarildi', '📅 Ertaga', "🗑 O'chirish", "◀️ Ro'yxatga qaytish"]
+    assert buttons(markup) == [
+        '✅ Bajarildi',
+        "⏰ Vaqtini o'zgartirish",
+        "✏️ Nomini o'zgartirish",
+        '📅 Ertaga',
+        "🗑 O'chirish",
+        "◀️ Ro'yxatga qaytish",
+    ]
 
 
 async def test_move_to_tomorrow_keeps_time(db, user, clock, make_callback):
@@ -192,13 +201,17 @@ async def test_change_page(db, user, clock, make_callback):
 async def test_stats(db, user, clock, make_message):
     task_id = await db.add_task(user, 'Bir')
     await db.add_task(user, 'Ikki', due_date=date(2026, 11, 19))  # kecha — muddati o'tgan
-    await db.mark_done(task_id, user)
+    await db.mark_done(task_id, user, NOW)
+    old = await db.add_task(user, 'Kechagi ish')
+    await db.mark_done(old, user, datetime(2026, 11, 19, 21, 0))
     message = make_message(user_id=user)
     await start.stats_handler(message, db, clock)
     text = message.answer.call_args.args[0]
-    assert 'Jami vazifalar: 2' in text
+    assert 'Bugun bajarildi: 1' in text
+    assert 'Shu hafta: 2' in text  # 16.11 dushanbadan beri
+    assert '🔥 2 kun ketma-ket' in text
+    assert 'Jami: 3 · bajarilgan 2 · qolgan 1' in text
     assert "Muddati o'tgan: 1" in text
-    assert '50%' in text
 
 
 async def test_list_grouped_by_sections(db, user):
@@ -239,24 +252,24 @@ async def test_remind_done_button(db, user, clock, make_callback):
 # --- topilgan xatolar uchun regressiya testlari ---
 
 
-async def test_menu_button_is_not_saved_as_title(state, make_message):
+async def test_menu_button_is_not_saved_as_title(db, state, clock, make_message):
     await state.set_state(AddTask.title)
     message = make_message(MY_TASKS)
-    await tasks.add_task_title(message, state)
+    await tasks.add_task_title(message, state, db, clock)
     assert await state.get_state() == AddTask.title  # nom hali ham kutilmoqda
     assert 'menyu tugmasi' in message.answer.call_args.args[0]
 
 
 async def test_menu_button_cancels_add_flow(db, state, clock, make_message):
-    await tasks.add_task_title(make_message('Hisobot'), state)
+    await tasks.add_task_title(make_message('Hisobot'), state, db, clock)
     await tasks.my_tasks(make_message(MY_TASKS), state, db, clock)
     assert await state.get_state() is None
 
 
 async def test_quick_add_free_text(db, state, clock, make_message):
-    await tasks.quick_add(make_message("Kitob o'qish"), state)
-    assert await state.get_state() == AddTask.due
-    await tasks.add_task_due(make_message(NO_DUE), state, db, clock)
+    await tasks.quick_add(make_message("Kitob o'qish"), state, db, clock)
+    assert await state.get_state() == AddTask.day
+    await tasks.add_task_day(make_message(NO_DUE), state, db, clock)
     [task] = await db.get_tasks(1)
     assert task.title == "Kitob o'qish"
 
@@ -331,3 +344,164 @@ async def test_admin_only_for_owner(db, user, make_message):
     owner = make_message('/admin', user_id=1)
     await start.admin_handler(owner, db, admin_id=1)
     assert 'Foydalanuvchilar: 1' in owner.answer.call_args.args[0]
+
+
+# --- "qaysi kun → soat nechada" qadamlari: eslatma albatta yetib borishi kerak ---
+
+
+def reply_buttons(message):
+    markup = message.answer.call_args.kwargs['reply_markup']
+    return [button.text for row in markup.keyboard for button in row]
+
+
+async def test_day_only_asks_time(db, state, clock, make_message):
+    await tasks.add_task_title(make_message('Dars'), state, db, clock)
+    message = make_message('Bugun')
+    await tasks.add_task_day(message, state, db, clock)
+    assert await state.get_state() == AddTask.time
+    assert 'Soat nechada' in message.answer.call_args.args[0]
+    assert await db.get_tasks(1) == []  # vaqt tanlanmaguncha saqlanmaydi
+
+
+async def test_evening_today_offers_only_future_times(db, state, clock, make_message):
+    # Skrinshotdagi holat: soat 20:07, «Bugun» — ertalabki reja o'tib ketgan
+    clock.current = datetime(2026, 11, 20, 20, 7)
+    await tasks.add_task_title(make_message('dars tugedi'), state, db, clock)
+    message = make_message('Bugun')
+    await tasks.add_task_day(message, state, db, clock)
+    options = reply_buttons(message)
+    assert '21:00' in options and '09:00' not in options and '18:00' not in options
+    assert MORNING not in options  # eslatma yetib bormaydigan variant ko'rsatilmaydi
+
+    refused = make_message(MORNING)
+    await tasks.add_task_time(refused, state, db, clock)
+    assert "o'tib ketgan" in refused.answer.call_args.args[0]
+    assert await db.get_tasks(1) == []
+
+    done = make_message('21:00')
+    await tasks.add_task_time(done, state, db, clock)
+    [task] = await db.get_tasks(1)
+    assert (task.due_date, task.due_time) == (date(2026, 11, 20), time(21, 0))
+    assert 'bugun 21:00 — aynan shu vaqtda eslataman' in done.answer.call_args.args[0]
+
+
+async def test_relative_time(db, state, clock, make_message):
+    await tasks.add_task_title(make_message("Qo'ng'iroq"), state, db, clock)
+    await tasks.add_task_day(make_message('Bugun'), state, db, clock)
+    await tasks.add_task_time(make_message('⏱ 1 soatdan keyin'), state, db, clock)
+    [task] = await db.get_tasks(1)
+    assert (task.due_date, task.due_time) == (TODAY, time(11, 0))
+
+
+async def test_past_time_today_rejected(db, state, clock, make_message):
+    await tasks.add_task_title(make_message('Hisobot'), state, db, clock)
+    await tasks.add_task_day(make_message('Bugun'), state, db, clock)
+    message = make_message('09:00')  # soat 10:00 — o'tgan
+    await tasks.add_task_time(message, state, db, clock)
+    assert await state.get_state() == AddTask.time
+    assert "o'tib ketgan" in message.answer.call_args.args[0]
+
+
+async def test_tomorrow_morning_plan(db, state, clock, make_message):
+    await tasks.add_task_title(make_message('Hisobot'), state, db, clock)
+    await tasks.add_task_day(make_message('Ertaga'), state, db, clock)
+    message = make_message(MORNING)
+    await tasks.add_task_time(message, state, db, clock)
+    [task] = await db.get_tasks(1)
+    assert (task.due_date, task.due_time) == (date(2026, 11, 21), None)
+    assert 'ertaga — ertalab 08:00 dagi rejada eslataman' in message.answer.call_args.args[0]
+
+
+async def test_daily_past_time_starts_tomorrow(db, state, clock, make_message):
+    await tasks.add_task_title(make_message('Sport'), state, db, clock)
+    await tasks.add_task_day(make_message('🔁 Har kuni'), state, db, clock)
+    await tasks.add_task_time(make_message('09:00'), state, db, clock)
+    [task] = await db.get_tasks(1)
+    assert (task.due_date, task.due_time, task.repeat) == (date(2026, 11, 21), time(9), 'daily')
+
+
+async def test_edit_due_from_card(db, user, state, clock, make_callback, make_message):
+    task_id = await db.add_task(user, 'dars tugedi', TODAY)
+    callback = make_callback(user)
+    await tasks.task_edit(callback, TaskCallback(action='edit', task_id=task_id), state, db)
+    assert await state.get_state() == AddTask.day
+
+    await tasks.add_task_day(make_message('Bugun', user_id=user), state, db, clock)
+    message = make_message('18:00', user_id=user)
+    await tasks.add_task_time(message, state, db, clock)
+    [task] = await db.get_tasks(user)  # yangi vazifa yaratilmadi — o'zi o'zgardi
+    assert (task.id, task.due_time) == (task_id, time(18, 0))
+    assert "Muddat o'zgartirildi" in message.answer.call_args.args[0]
+
+
+# --- kengaytirish: bitta xabarda qo'shish, nomni o'zgartirish, sozlamalar ---
+
+
+@pytest.mark.parametrize(
+    ('text', 'title', 'due'),
+    [
+        ('Hisobot topshirish ertaga 15:00', 'Hisobot topshirish', (date(2026, 11, 21), time(15))),
+        ('ertaga 15:00 Hisobot topshirish', 'Hisobot topshirish', (date(2026, 11, 21), time(15))),
+        ("Onamga qo'ng'iroq 18:30", "Onamga qo'ng'iroq", (TODAY, time(18, 30))),
+    ],
+)
+async def test_one_message_add(db, state, clock, make_message, text, title, due):
+    message = make_message(text)
+    await tasks.quick_add(message, state, db, clock)
+    assert await state.get_state() is None  # savolsiz saqlandi
+    [task] = await db.get_tasks(1)
+    assert (task.title, (task.due_date, task.due_time)) == (title, due)
+    assert 'aynan shu vaqtda eslataman' in message.answer.call_args.args[0]
+
+
+async def test_one_message_with_day_asks_only_time(db, state, clock, make_message):
+    message = make_message("Kitob o'qish ertaga")
+    await tasks.quick_add(message, state, db, clock)
+    assert await state.get_state() == AddTask.time
+    assert (await state.get_data())['title'] == "Kitob o'qish"
+
+
+async def test_one_message_past_time_explained(db, state, clock, make_message):
+    message = make_message('Hisobot bugun 09:00')  # soat 10:00
+    await tasks.quick_add(message, state, db, clock)
+    assert "o'tib ketgan" in message.answer.call_args.args[0]
+    assert await db.get_tasks(1) == []
+
+
+async def test_number_inside_title_is_not_due(db, state, clock, make_message):
+    await tasks.quick_add(make_message("Python 3.12 o'rnatish"), state, db, clock)
+    assert await state.get_state() == AddTask.day
+    assert (await state.get_data())['title'] == "Python 3.12 o'rnatish"
+
+
+async def test_rename_from_card(db, user, state, clock, make_callback, make_message):
+    task_id = await db.add_task(user, 'Eski nom')
+    callback = make_callback(user)
+    await tasks.task_rename(callback, TaskCallback(action='rename', task_id=task_id), state, db)
+    await tasks.rename_title(make_message('ab', user_id=user), state, db)  # yaroqsiz
+    assert (await db.get_task(task_id, user)).title == 'Eski nom'
+    await tasks.rename_title(make_message('Yangi  nom', user_id=user), state, db)
+    assert (await db.get_task(task_id, user)).title == 'Yangi nom'
+    assert await state.get_state() is None
+
+
+async def test_settings_change_hour_and_weekly(db, user, state, make_message, make_callback):
+    message = make_message(user_id=user)
+    await settings.settings_handler(message, state, db, digest_hour=8)
+    assert '08:00' in message.answer.call_args.args[0]
+
+    callback = make_callback(user)
+    await settings.settings_change(callback, SettingsCallback(action='hour', value=7), db)
+    await settings.settings_change(callback, SettingsCallback(action='weekly'), db)
+    stored = await db.get_settings(user)
+    assert (stored.digest_hour, stored.weekly) == (7, False)
+    assert "o'chirilgan" in callback.message.edit_text.call_args.args[0]
+
+
+async def test_personal_digest_hour_used_in_add_flow(db, user, state, clock, make_message):
+    await db.set_digest_hour(user, 10)
+    clock.current = datetime(2026, 11, 20, 9, 0)  # umumiy 08:00 o'tgan, shaxsiy 10:00 hali yo'q
+    await tasks.quick_add(make_message('Hisobot bugun', user_id=user), state, db, clock)
+    message = make_message(MORNING, user_id=user)
+    await tasks.add_task_time(message, state, db, clock)
+    assert 'ertalab 10:00 dagi rejada' in message.answer.call_args.args[0]

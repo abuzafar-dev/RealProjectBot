@@ -9,13 +9,14 @@ WELCOME_IMAGE = Path(__file__).resolve().parent.parent / 'assets' / 'welcome.png
 # Start bosilishidan oldin bo'sh chatda ko'rinadi («Bu bot nima qila oladi?»), 512 belgigacha
 DESCRIPTION = (
     "⏰ Vazifalaringizni yozib qo'ying — vaqti kelganda o'zim eslataman.\n"
+    'Bitta xabar kifoya: «Hisobot ertaga 15:00»\n'
     '\n'
     'Nima qila olaman:\n'
     '• ⏰ Aniq vaqtda eslatma (+15 daq / +1 soat / ertaga kechiktirish)\n'
     '• ☀️ Har kuni ertalab bugungi reja\n'
     '• 🔁 Har kuni / har hafta takrorlanuvchi vazifalar\n'
     "• 📋 Ro'yxat: ✅ bajarildi, 🗑 o'chirish\n"
-    '• 📊 Statistika va progress\n'
+    '• 📊 Statistika, 🔥 ketma-ketlik va 📈 haftalik hisobot\n'
     '\n'
     'Boshlash uchun START ni bosing 👇'
 )

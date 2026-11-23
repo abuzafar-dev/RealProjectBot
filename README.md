@@ -29,7 +29,9 @@ eng muhimi esa — **bot o'zi yozadi**, uni ochish shart emas:
 | Eslatma noqulay paytda keldi | ⏰ **+15 daq / +1 soat / Ertaga** — bir bosishda kechiktiriladi va qayta keladi |
 | Har kungi odatlar (sport, dori, kitob) | `har kuni 09:00`, `har hafta` — 🔁 bajarilganda keyingisi o'zi yaratiladi |
 | Bugun nima qilishim kerakligini bilmayman | Har kuni ertalab (08:00) ☀️ **bugungi reja**, istalgan payt — «☀️ Bugungi reja» |
-| Yozish uchun ko'p qadam | Menyu shart emas — vazifani **shunchaki yozib yuborish** kifoya |
+| Yozish uchun ko'p qadam | Bitta xabar kifoya: `Hisobot ertaga 15:00` — nom va muddat o'zi ajratiladi |
+| Har kimning kuni har xil boshlanadi | ⚙️ Sozlamalarda ertalabki reja soati (06:00–10:00) shaxsan tanlanadi |
+| Qancha ish qilganim sezilmaydi | 📈 Har yakshanba haftalik hisobot, 📊 da 🔥 ketma-ket kunlar |
 | Ro'yxat chalkash | Eng yaqin muddat tepada, ⚠️ muddati o'tganlar belgilangan, bajarilganlar ~~chizilgan~~ |
 | Qancha ish qildim — ko'rinmaydi | 📊 statistika: jami, bajarilgan, qolgan, muddati o'tgan, progress |
 | Ilova o'rnatish, ro'yxatdan o'tish | Kerak emas — `/start` bosiladi, tamom |
@@ -53,7 +55,11 @@ eng muhimi esa — **bot o'zi yozadi**, uni ochish shart emas:
 - **Birinchi tanishuv** — Start bosilishidan oldin bo'sh chatda bot nima qila olishi yozilgan
   tavsif ko'rinadi (bot ishga tushganda Telegram'ga avtomatik yoziladi). `/start` dan keyin
   rasm va 3 qadamli qisqa yo'riqnoma keladi
-- **Vazifa qo'shish** — 2 qadam: nom → muddat. Menyusiz ham: istalgan matnni yozib yuborsangiz,
+- **Vazifa qo'shish** — 3 qadam: nom → qaysi kun → soat nechada eslatish. Oxirida bot
+  eslatma **qachon** kelishini aniq yozadi. Bugun uchun faqat hali kelmagan soatlar taklif
+  qilinadi; «☀️ Ertalabki rejada» faqat o'sha reja haqiqatan yuboriladigan bo'lsa ko'rsatiladi —
+  shuning uchun eslatmasi hech qachon kelmaydigan vazifa yaratib bo'lmaydi.
+  `ertaga 15:00` deb bir yo'la yozish ham mumkin. Menyusiz ham: istalgan matnni yozib yuborsangiz,
   u vazifa nomi bo'ladi. Nom 3 belgidan qisqa, harfsiz (`123`, `...`), 200 belgidan uzun yoki menyu tugmasi bo'lsa rad etiladi.
   Muddat: `bugun`, `ertaga`, `25.11`, `25.11.2026`, `ertaga 15:00`, `18:30`, `har kuni 09:00`,
   `har hafta` yoki tugmalar. O'tib ketgan sana/vaqt va mavjud bo'lmagan sana (`31.02`) qabul qilinmaydi
@@ -65,9 +71,18 @@ eng muhimi esa — **bot o'zi yozadi**, uni ochish shart emas:
   🗓 Keyingi, 📝 Muddatsiz. Bajarilganlar ro'yxatni egallamaydi — faqat soni ko'rsatiladi.
   10 tadan sahifalanadi (◀️ ▶️)
 - **Vazifa kartasi** — ro'yxat ostida faqat raqamlar (5 tadan qatorda); raqam bosilsa o'sha xabarda
-  karta ochiladi: ✅ Bajarildi, 📅 Ertaga ko'chirish, 🗑 O'chirish, ◀️ Ro'yxatga qaytish.
+  karta ochiladi: ✅ Bajarildi, ⏰ Vaqtini o'zgartirish, ✏️ Nomini o'zgartirish,
+  📅 Ertaga ko'chirish, 🗑 O'chirish,
+  ◀️ Ro'yxatga qaytish.
   🧹 tugmasi bajarilganlarni bir bosishda tozalaydi
-- **📊 Statistika** — jami, bajarilgan, qolgan, muddati o'tgan va progress bar
+- **⚡ Bitta xabarda qo'shish** — `Hisobot ertaga 15:00`, `ertaga 15:00 Hisobot`,
+  `Sport har kuni 07:00`: muddat matn boshidan yoki oxiridan ajratiladi va vazifa savolsiz
+  saqlanadi; faqat kun yozilsa (`Kitob o'qish ertaga`) — bot faqat soatni so'raydi. Nom ichidagi
+  raqamlar (`Python 3.12 o'rnatish`) muddat deb olinmaydi
+- **📊 Statistika** — bugun va shu hafta bajarilganlar, 🔥 ketma-ket kunlar, jami, muddati o'tgan
+- **📈 Haftalik hisobot** — har yakshanba 20:00 da: bajarilganlar, muddati o'tganlar,
+  ketma-ketlik va keyingi 7 kunga reja. Sozlamalarda o'chirish mumkin
+- **⚙️ Sozlamalar** (`/settings`) — shaxsiy ertalabki reja soati va haftalik hisobot
 - **🛠 `/admin`** — bot egasi uchun (`ADMIN_ID`): foydalanuvchilar, faollar, vazifalar, eslatmalar
 - `/start`, `/today`, `/help`, `/cancel` buyruqlari, Telegram menyusida ko'rinadi;
   noma'lum buyruq va matn bo'lmagan xabarga tushunarli javob beriladi
@@ -93,13 +108,15 @@ bot/
   config.py             .env ni o'qish va tekshirish (Settings)
   database.py           Database klassi, Task/Stats modellari, sxema va migratsiya
   due.py                muddat matnini o'qish va ko'rsatish (sof funksiyalar)
-  reminders.py          eslatmalar va ertalabki reja (fon vazifasi)
+  reminders.py          eslatmalar, ertalabki reja va haftalik hisobot (fon vazifasi)
+  progress.py           ketma-ketlik (streak) va haftalik hisobot matni (sof funksiyalar)
   clock.py              vaqt zonasidagi joriy vaqt (testda qotiriladi)
   keyboards.py          reply va inline tugmalar, CallbackData
   states.py             FSM holatlari
   handlers/
     start.py            /start, /help, /cancel, statistika
-    tasks.py            vazifa qo'shish, ro'yxat, sahifalash, callbacklar
+    tasks.py            vazifa qo'shish, ro'yxat, karta, callbacklar
+    settings.py         ⚙️ shaxsiy sozlamalar
     errors.py           global xato ushlagich
 tests/                  baza va handlerlar uchun testlar
 scripts/ci.sh           lokal va CI'da bir xil tekshiruv
@@ -129,7 +146,7 @@ scripts/ci.sh           lokal va CI'da bir xil tekshiruv
 - **Vaqt — dependency.** Joriy vaqt `Clock` obyekti orqali olinadi, shuning uchun testlarda
   "hozir"ni qotirib, eslatmalarni soatni kutmasdan tekshirish mumkin.
 - **Migratsiya.** Eski bazada yangi ustunlar (`done_at`, `due_date`, `due_time`, `reminded`,
-  `last_digest`, `repeat`) bo'lmasa, ishga tushishda avtomatik qo'shiladi. Ma'lumotlar yo'qolmaydi.
+  `last_digest`, `repeat`, `digest_hour`, `weekly`, `last_weekly`) bo'lmasa, ishga tushishda avtomatik qo'shiladi. Ma'lumotlar yo'qolmaydi.
 
 ## Real ishlatishda topilgan va tuzatilgan xatolar
 
@@ -141,6 +158,7 @@ Topilgan har bir xato uchun avval yiqiladigan test yozildi, keyin tuzatildi:
 | Bitta chatga yuborib bo'lmasa (`chat not found`) eslatmalar sikli yiqilardi | Shu vazifadan keyingi **barcha foydalanuvchilarning** eslatmalari har 30 soniyada qayta tiqilib qolardi | Doimiy va vaqtinchalik xatolar ajratildi, har bir xabar alohida ishlanadi |
 | Nom so'ralganda menyu tugmasi bosilsa | `📋 Vazifalarim` vazifa nomi bo'lib saqlanardi | Menyu tugmalari har qanday holatda menyu sifatida ishlaydi, nom sifatida rad etiladi |
 | Oddiy matn yozilsa | Bot umuman javob bermasdi | Matn — tez qo'shish; noma'lum buyruq va stikerga yo'riqnoma |
+| Kechqurun «Bugun» tanlansa | Vazifa «ertalabki rejaga» yozilardi, lekin bugungi reja o'tib ketgan — **eslatma hech qachon kelmasdi** | Kun tanlangandan keyin soat so'raladi; yetib bormaydigan variantlar ko'rsatilmaydi va rad etiladi |
 | Bot guruhga qo'shilsa | Guruhda vazifa qo'shilib, eslatmalar shaxsiy chatga ketardi | Faqat shaxsiy chat xabarlari qayta ishlanadi |
 
 ## Ishga tushirish
@@ -200,7 +218,7 @@ make test     # ruff lint + format tekshiruvi + pytest (CI bilan aynan bir xil)
 make format   # kodni avtomatik formatlash
 ```
 
-84 ta test quyidagilarni qamraydi: bazaning CRUD amallari, muddat bo'yicha saralash va
+108 ta test quyidagilarni qamraydi: bazaning CRUD amallari, muddat bo'yicha saralash va
 sahifalash, boshqa foydalanuvchi vazifasiga kirishni taqiqlash, foreign key, eski sxemadan
 migratsiya, muddat matnini o'qish (to'g'ri va noto'g'ri formatlar), vazifa qo'shish oqimi,
 HTML escaping, ro'yxat va callbacklar, statistika, eslatmaning aniq vaqtda va faqat bir marta
