@@ -124,6 +124,8 @@ def format_due(day: date, at: time | None, today: date, repeat: str | None = Non
         label = 'bugun'
     elif day == today + timedelta(days=1):
         label = 'ertaga'
+    elif day == today - timedelta(days=1):
+        label = 'kecha'
     else:
         label = day.strftime('%d.%m') if day.year == today.year else day.strftime('%d.%m.%Y')
     text = f'{label} {at:%H:%M}' if at else label

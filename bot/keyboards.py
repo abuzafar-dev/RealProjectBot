@@ -43,7 +43,7 @@ due_menu = ReplyKeyboardMarkup(
 
 
 class TaskCallback(CallbackData, prefix='task'):
-    action: str  # 'done' | 'delete'
+    action: str  # 'open' | 'done' | 'tomorrow' | 'delete'
     task_id: int
     page: int = 0
 
@@ -79,23 +79,24 @@ def remind_keyboard(task_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+NUMBERS_PER_ROW = 5
+
+
 def tasks_keyboard(
-    tasks: list[Task], page: int, pages: int, start_number: int, has_done: bool = False
+    tasks: list[Task], page: int, pages: int, start_number: int, done_count: int = 0
 ) -> InlineKeyboardMarkup:
-    """Har bir vazifa uchun bitta qator: [✅ N] [🗑 N]; pastda sahifalash va tozalash."""
+    """Ro'yxat ostida: vazifa raqamlari (5 tadan qatorda), sahifalash va tozalash.
+
+    Raqam bosilganda vazifa kartasi ochiladi — har bir vazifa uchun ikkita tugma o'rniga bitta.
+    """
     builder = InlineKeyboardBuilder()
     sizes = []
     for number, task in enumerate(tasks, start=start_number):
-        if not task.is_done:
-            builder.button(
-                text=f'✅ {number}',
-                callback_data=TaskCallback(action='done', task_id=task.id, page=page),
-            )
         builder.button(
-            text=f'🗑 {number}',
-            callback_data=TaskCallback(action='delete', task_id=task.id, page=page),
+            text=str(number), callback_data=TaskCallback(action='open', task_id=task.id, page=page)
         )
-        sizes.append(1 if task.is_done else 2)
+    full, rest = divmod(len(tasks), NUMBERS_PER_ROW)
+    sizes += [NUMBERS_PER_ROW] * full + ([rest] if rest else [])
 
     if pages > 1:
         nav = 0
@@ -109,9 +110,26 @@ def tasks_keyboard(
             nav += 1
         sizes.append(nav)
 
-    if has_done:
-        builder.button(text='🧹 Bajarilganlarni tozalash', callback_data=ClearDoneCallback())
+    if done_count:
+        builder.button(
+            text=f'🧹 Bajarilganlarni tozalash ({done_count})', callback_data=ClearDoneCallback()
+        )
         sizes.append(1)
 
     builder.adjust(*sizes)
+    return builder.as_markup()
+
+
+def task_card_keyboard(task_id: int, page: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for text, action in [
+        ('✅ Bajarildi', 'done'),
+        ('📅 Ertaga', 'tomorrow'),
+        ("🗑 O'chirish", 'delete'),
+    ]:
+        builder.button(
+            text=text, callback_data=TaskCallback(action=action, task_id=task_id, page=page)
+        )
+    builder.button(text="◀️ Ro'yxatga qaytish", callback_data=PageCallback(page=page))
+    builder.adjust(1, 2, 1)
     return builder.as_markup()

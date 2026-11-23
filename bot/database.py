@@ -181,6 +181,16 @@ class Database:
         ) as cursor:
             return [_to_task(row) for row in await cursor.fetchall()]
 
+    async def get_open_tasks(self, user_id: int, limit: int = -1, offset: int = 0) -> list[Task]:
+        """Bajarilmaganlar: muddati o'tgan → bugun → keyingi → muddatsiz (yangisi tepada)."""
+        async with self.conn.execute(
+            'SELECT * FROM tasks WHERE user_id = ? AND is_done = 0 '
+            'ORDER BY due_date IS NULL, due_date, due_time IS NULL, due_time, id DESC '
+            'LIMIT ? OFFSET ?',
+            (user_id, limit, offset),
+        ) as cursor:
+            return [_to_task(row) for row in await cursor.fetchall()]
+
     async def get_task(self, task_id: int, user_id: int) -> Task | None:
         async with self.conn.execute(
             'SELECT * FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id)
@@ -196,12 +206,19 @@ class Database:
         )
         return changed > 0
 
-    async def reschedule(self, task_id: int, user_id: int, due_date: date, due_time: time) -> bool:
-        """Eslatmani kechiktirish: yangi vaqt va eslatma qayta yuboriladi."""
+    async def reschedule(
+        self, task_id: int, user_id: int, due_date: date, due_time: time | None
+    ) -> bool:
+        """Muddatni ko'chirish/kechiktirish: yangi vaqtda eslatma qayta yuboriladi."""
         changed = await self._write(
             'UPDATE tasks SET due_date = ?, due_time = ?, reminded = 0 '
             'WHERE id = ? AND user_id = ? AND is_done = 0',
-            (due_date.isoformat(), due_time.strftime('%H:%M'), task_id, user_id),
+            (
+                due_date.isoformat(),
+                due_time.strftime('%H:%M') if due_time else None,
+                task_id,
+                user_id,
+            ),
         )
         return changed > 0
 

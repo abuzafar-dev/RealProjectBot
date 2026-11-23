@@ -8,7 +8,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from bot.clock import Clock
 from bot.database import Database, Task
-from bot.due import DueParseError, format_due, next_occurrence, parse_due
+from bot.due import REPEAT_LABEL, DueParseError, format_due, next_occurrence, parse_due
 from bot.keyboards import (
     ADD_TASK,
     EVERY_DAY,
@@ -24,6 +24,7 @@ from bot.keyboards import (
     cancel_menu,
     due_menu,
     main_menu,
+    task_card_keyboard,
     tasks_keyboard,
 )
 from bot.reminders import digest_text
@@ -31,6 +32,7 @@ from bot.states import AddTask
 
 router = Router(name='tasks')
 
+MIN_TITLE_LENGTH = 3
 MAX_TITLE_LENGTH = 200
 PAGE_SIZE = 10
 EMPTY_TEXT = "Sizda hali vazifa yo'q. «➕ Vazifa qo'shish» tugmasini bosing yoki shunchaki yozing."
@@ -42,36 +44,84 @@ DUE_PROMPT = (
 )
 
 
-def task_line(number: int, task: Task, today: date) -> str:
-    title = html.quote(task.title)
-    if task.is_done:
-        return f'{number}. ✅ <s>{title}</s>'
+SECTIONS = {
+    'overdue': "⚠️ <b>Muddati o'tgan</b>",
+    'today': '📅 <b>Bugun</b>',
+    'later': '🗓 <b>Keyingi</b>',
+    'none': '📝 <b>Muddatsiz</b>',
+}
+
+
+def section_of(task: Task, today: date) -> str:
     if task.due_date is None:
-        return f'{number}. 🕐 {title}'
-    due = format_due(task.due_date, task.due_time, today, task.repeat)
-    mark = '⚠️' if task.due_date < today else '📅'
-    return f'{number}. 🕐 {title} — {mark} {due}'
+        return 'none'
+    if task.due_date < today:
+        return 'overdue'
+    return 'today' if task.due_date == today else 'later'
+
+
+def task_line(number: int, task: Task, today: date) -> str:
+    """Bitta qator: raqam, nom va (bo'lim sarlavhasi aytmagan) qisqa muddat."""
+    line = f'{number}. {html.quote(task.title)}'
+    section = section_of(task, today)
+    if section == 'today':
+        when = f'{task.due_time:%H:%M}' if task.due_time else ''
+    elif section == 'none':
+        when = ''
+    else:
+        when = format_due(task.due_date, task.due_time, today)
+    if when:
+        line += f' · {when}'
+    return line + (' 🔁' if task.repeat else '')
 
 
 async def render_tasks(
     db: Database, user_id: int, page: int, today: date
 ) -> tuple[str, InlineKeyboardMarkup | None]:
-    """Vazifalar ro'yxatining bitta sahifasini matn va tugmalar ko'rinishida qaytaradi."""
+    """Ochiq vazifalar bo'limlarga ajratilgan holda; bajarilganlar faqat soni bilan."""
     stats = await db.get_stats(user_id)
     if stats.total == 0:
         return EMPTY_TEXT, None
+    if stats.left == 0:
+        text = f'🎉 <b>Hammasi bajarilgan!</b>\n\n✅ Bajarilgan: {stats.done} ta'
+        return text, tasks_keyboard([], 0, 1, 1, done_count=stats.done)
 
-    pages = (stats.total + PAGE_SIZE - 1) // PAGE_SIZE
+    pages = (stats.left + PAGE_SIZE - 1) // PAGE_SIZE
     page = min(max(page, 0), pages - 1)
     offset = page * PAGE_SIZE
-    tasks = await db.get_tasks(user_id, limit=PAGE_SIZE, offset=offset)
+    tasks = await db.get_open_tasks(user_id, limit=PAGE_SIZE, offset=offset)
 
-    lines = [f'📋 <b>Vazifalaringiz</b> ({stats.done}/{stats.total} bajarilgan)', '']
+    lines = [f'📋 <b>Vazifalaringiz</b> · {stats.left} ta ochiq']
+    current = None
     for number, task in enumerate(tasks, start=offset + 1):
+        section = section_of(task, today)
+        if section != current:
+            lines += ['', SECTIONS[section]]
+            current = section
         lines.append(task_line(number, task, today))
+    if stats.done:
+        lines += ['', f'✅ Bajarilgan: {stats.done} ta']
+    lines += ['', '<i>Raqamni bosing — vazifa ochiladi 👇</i>']
 
-    markup = tasks_keyboard(tasks, page, pages, start_number=offset + 1, has_done=stats.done > 0)
+    markup = tasks_keyboard(tasks, page, pages, offset + 1, done_count=stats.done)
     return '\n'.join(lines), markup
+
+
+def task_card(task: Task, today: date) -> str:
+    lines = [f'📝 <b>{html.quote(task.title)}</b>', '']
+    if task.due_date is None:
+        lines.append("Muddat: yo'q")
+    elif task.due_date < today:
+        days = (today - task.due_date).days
+        due = format_due(task.due_date, task.due_time, today)
+        lines.append(f"⚠️ Muddati o'tgan: {due} ({days} kun oldin)")
+    else:
+        lines.append(f'📅 Muddat: {format_due(task.due_date, task.due_time, today)}')
+        if task.due_time:
+            lines.append('⏰ Shu vaqtda eslataman')
+    if task.repeat:
+        lines.append(f'🔁 Takrorlanadi: {REPEAT_LABEL[task.repeat]}')
+    return '\n'.join(lines)
 
 
 async def refresh_list(callback: CallbackQuery, db: Database, clock: Clock, page: int) -> None:
@@ -137,6 +187,12 @@ async def accept_title(message: Message, state: FSMContext, raw: str) -> None:
     if not title:
         await message.answer("Vazifa nomi bo'sh bo'lmasin. Qaytadan yozing:")
         return
+    if len(title) < MIN_TITLE_LENGTH or not any(char.isalpha() for char in title):
+        await message.answer(
+            'Vazifa nomini tushunarli yozing (kamida 3 belgi, harflar bilan), '
+            'masalan: <i>Hisobot topshirish</i>'
+        )
+        return
     if title in MENU_BUTTONS:
         await message.answer('Bu menyu tugmasi. Vazifa nomini matn qilib yozing:')
         return
@@ -193,19 +249,58 @@ async def add_task_wrong(message: Message) -> None:
 # --- ro'yxatdagi tugmalar ---
 
 
+async def open_task(
+    callback: CallbackQuery, callback_data: TaskCallback, db: Database
+) -> Task | None:
+    """Callback'dagi vazifani oladi; topilmasa yoki yopilgan bo'lsa — ogohlantiradi."""
+    task = await db.get_task(callback_data.task_id, callback.from_user.id)
+    if task is None or task.is_done:
+        await callback.answer("Bu vazifa allaqachon bajarilgan yoki o'chirilgan", show_alert=True)
+        return None
+    return task
+
+
+@router.callback_query(TaskCallback.filter(F.action == 'open'))
+async def task_open(
+    callback: CallbackQuery, callback_data: TaskCallback, db: Database, clock: Clock
+) -> None:
+    task = await open_task(callback, callback_data, db)
+    if task is None:
+        await refresh_list(callback, db, clock, callback_data.page)
+        return
+    await callback.message.edit_text(
+        task_card(task, clock.now().date()),
+        reply_markup=task_card_keyboard(task.id, callback_data.page),
+    )
+    await callback.answer()
+
+
 @router.callback_query(TaskCallback.filter(F.action == 'done'))
 async def task_done(
     callback: CallbackQuery, callback_data: TaskCallback, db: Database, clock: Clock
 ) -> None:
-    task = await db.get_task(callback_data.task_id, callback.from_user.id)
+    task = await open_task(callback, callback_data, db)
     if task is None:
-        await callback.answer('Vazifa topilmadi', show_alert=True)
         await refresh_list(callback, db, clock, callback_data.page)
         return
     now = clock.now()
     following = await complete_task(db, task, now)
     await refresh_list(callback, db, clock, callback_data.page)
-    await callback.answer(('Bajarildi deb belgilandi' + next_text(following, now.date())).strip())
+    await callback.answer(('✅ Bajarildi' + next_text(following, now.date())).strip())
+
+
+@router.callback_query(TaskCallback.filter(F.action == 'tomorrow'))
+async def task_tomorrow(
+    callback: CallbackQuery, callback_data: TaskCallback, db: Database, clock: Clock
+) -> None:
+    task = await open_task(callback, callback_data, db)
+    if task is None:
+        await refresh_list(callback, db, clock, callback_data.page)
+        return
+    tomorrow = clock.now().date() + timedelta(days=1)
+    await db.reschedule(task.id, task.user_id, tomorrow, task.due_time)
+    await refresh_list(callback, db, clock, callback_data.page)
+    await callback.answer("📅 Ertaga ko'chirildi")
 
 
 @router.callback_query(TaskCallback.filter(F.action == 'delete'))
@@ -215,7 +310,7 @@ async def task_delete(
     deleted = await db.delete_task(callback_data.task_id, callback.from_user.id)
     await refresh_list(callback, db, clock, callback_data.page)
     if deleted:
-        await callback.answer("O'chirildi")
+        await callback.answer("🗑 O'chirildi")
     else:
         await callback.answer('Vazifa topilmadi', show_alert=True)
 

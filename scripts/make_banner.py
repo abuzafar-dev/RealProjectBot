@@ -41,59 +41,71 @@ def gradient() -> Image.Image:
     return img
 
 
+USER_BUBBLE = (43, 82, 140)
+BOT_BUBBLE = (37, 51, 89)
+
+
+def bubble(draw, img, text, y, *, outgoing, icon=None):
+    """Chat xabari: outgoing — o'ngda (foydalanuvchi), aks holda chapda (bot)."""
+    text_font = font('Regular', 28)
+    width = draw.textlength(text, font=text_font) + 48 + (44 if icon else 0)
+    x0 = 1200 - width if outgoing else 700
+    draw.rounded_rectangle(
+        (x0, y, x0 + width, y + 60), radius=20, fill=USER_BUBBLE if outgoing else BOT_BUBBLE
+    )
+    left = x0 + 24
+    if icon:
+        emoji(img, icon, (round(left), y + 15), 30)
+        left += 44
+    draw.text((left, y + 30), text, font=text_font, fill=WHITE, anchor='lm')
+
+
 def main() -> None:
     img = gradient()
     draw = ImageDraw.Draw(img)
 
-    # chap tomon: nom, shior, imkoniyatlar
-    draw.text((80, 78), 'Eslatuvchi', font=font('Bold', 64), fill=WHITE)
-    draw.text((80, 150), 'vazifalar boti', font=font('Bold', 64), fill=ACCENT)
-    draw.text(
-        (80, 248), "Yozing — vaqti kelganda o'zim eslataman", font=font('Regular', 30), fill=MUTED
-    )
+    # chap tomon: faqat nom va g'oya. Imkoniyatlar ro'yxati bot tavsifida bor — takrorlanmaydi
+    draw.text((80, 230), 'Eslatuvchi', font=font('Bold', 68), fill=WHITE)
+    draw.text((80, 306), 'vazifalar boti', font=font('Bold', 68), fill=ACCENT)
+    draw.text((80, 420), 'Bir marta yozasiz —', font=font('Regular', 32), fill=MUTED)
+    draw.text((80, 462), 'qolganini bot eslab qoladi', font=font('Regular', 32), fill=MUTED)
 
-    features = [
-        ('⏰', 'Aniq vaqtda eslatma'),
-        ('☀️', 'Har kuni ertalab bugungi reja'),
-        ('🔁', 'Takrorlanuvchi vazifalar'),
-        ('📊', 'Statistika va progress'),
-    ]
-    for i, (icon, text) in enumerate(features):
-        y = 330 + i * 78
-        emoji(img, icon, (80, y), 46)
-        draw.text((146, y + 2), text, font=font('SemiBold', 32), fill=WHITE)
+    # o'ng tomon: qanday ishlashi — chat namunasi
+    bubble(draw, img, 'Hisobot topshirish', 70, outgoing=True)
+    bubble(draw, img, 'Muddat qachon?', 148, outgoing=False, icon='📅')
+    bubble(draw, img, 'ertaga 15:00', 226, outgoing=True)
 
-    draw.text(
-        (80, 652),
-        "Ilova o'rnatish shart emas — hammasi Telegram'ning o'zida",
-        font=font('Regular', 24),
-        fill=MUTED,
-    )
+    note_font = font('Regular', 22)
+    note = 'ertasi kuni, 15:00'
+    draw.text((950, 333), note, font=note_font, fill=MUTED, anchor='mm')
+    note_w = draw.textlength(note, font=note_font)
+    for x_start, x_end in ((700, 950 - note_w / 2 - 16), (950 + note_w / 2 + 16, 1200)):
+        draw.line((x_start, 333, x_end, 333), fill=CARD_LINE, width=2)
 
-    # o'ng tomon: eslatma xabari namunasi
-    x0, y0, x1, y1 = 790, 190, 1200, 536
-    draw.rounded_rectangle((x0, y0, x1, y1), radius=28, fill=CARD, outline=CARD_LINE, width=2)
-    emoji(img, '⏰', (x0 + 32, y0 + 32), 40)
-    draw.text((x0 + 86, y0 + 32), 'Eslatma', font=font('Bold', 32), fill=WHITE)
-    draw.text((x0 + 32, y0 + 100), 'Hisobot topshirish', font=font('Regular', 30), fill=WHITE)
-    draw.text((x0 + 32, y0 + 152), 'Muddat: bugun 15:00', font=font('Regular', 26), fill=MUTED)
+    x0, y0, x1 = 700, 370, 1200
+    draw.rounded_rectangle((x0, y0, x1, 650), radius=24, fill=CARD, outline=CARD_LINE, width=2)
+    emoji(img, '⏰', (x0 + 28, y0 + 26), 36)
+    draw.text((x0 + 76, y0 + 24), 'Eslatma', font=font('Bold', 30), fill=WHITE)
+    draw.text((x0 + 28, y0 + 82), 'Hisobot topshirish', font=font('Regular', 28), fill=WHITE)
+    draw.text((x0 + 28, y0 + 126), 'Muddat: bugun 15:00', font=font('Regular', 24), fill=MUTED)
 
-    buttons = [((x0 + 24, y0 + 220, x1 - 24, y0 + 272), '✅', 'Bajarildi')]
-    third = (x1 - x0 - 48 - 20) // 3
+    buttons = [((x0 + 20, y0 + 178, x1 - 20, y0 + 222), '✅', 'Bajarildi')]
+    third = (x1 - x0 - 40 - 20) // 3
     for i, label in enumerate(['+15 daq', '+1 soat', 'Ertaga']):
-        left = x0 + 24 + i * (third + 10)
-        buttons.append(((left, y0 + 282, left + third, y0 + 322), None, label))
+        left = x0 + 20 + i * (third + 10)
+        buttons.append(((left, y0 + 232, left + third, y0 + 268), '⏰', label))
     for box, icon, label in buttons:
         draw.rounded_rectangle(box, radius=12, fill=BUTTON)
-        size = 26 if icon else 20
+        big = box[3] - box[1] > 40
+        size = 24 if big else 19
+        icon_size = 24 if big else 18
         label_font = font('SemiBold', size)
-        text_w = draw.textlength(label, font=label_font) + (36 if icon else 0)
+        gap = icon_size + 8
+        text_w = draw.textlength(label, font=label_font) + gap
         left = box[0] + (box[2] - box[0] - text_w) / 2
         mid = (box[1] + box[3]) / 2
-        if icon:
-            emoji(img, icon, (round(left), round(mid - 13)), 26)
-            left += 36
-        draw.text((left, mid), label, font=label_font, fill=WHITE, anchor='lm')
+        emoji(img, icon, (round(left), round(mid - icon_size / 2)), icon_size)
+        draw.text((left + gap, mid), label, font=label_font, fill=WHITE, anchor='lm')
 
     OUT.parent.mkdir(exist_ok=True)
     img.convert('RGB').save(OUT, optimize=True)

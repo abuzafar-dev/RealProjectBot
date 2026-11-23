@@ -36,7 +36,7 @@ async def test_start_registers_user_and_sends_welcome_photo(db, make_message):
     await start.start_handler(message, AsyncMock(), db)
     assert await db.count_users() == 1
     caption = message.answer_photo.call_args.kwargs['caption']
-    assert 'Test User' in caption and 'ertaga 15:00' in caption
+    assert 'Test User' in caption and '/help' in caption
     assert len(caption) <= 1024  # Telegram izoh chegarasi
 
 
@@ -85,7 +85,7 @@ async def test_bad_due_keeps_state(db, state, clock, make_message):
     assert 'tushunmadim' in message.answer.call_args.args[0]
 
 
-@pytest.mark.parametrize('text', ['a' * 201, '   '])
+@pytest.mark.parametrize('text', ['a' * 201, '   ', 'ab', '12345', '...!!!', '😀😀😀'])
 async def test_invalid_title_rejected(state, make_message, text):
     await tasks.add_task_title(make_message(text), state)
     assert await state.get_state() is None
@@ -107,11 +107,11 @@ async def test_my_tasks_single_message_with_buttons(db, user, state, clock, make
 
     message.answer.assert_awaited_once()
     text = message.answer.call_args.args[0]
-    assert '1. 🕐 Yugurish' in text
-    assert '2. ✅ <s>Kitob</s>' in text
+    assert '1. Yugurish' in text
+    assert 'Kitob' not in text  # bajarilgan ro'yxatni egallamaydi — faqat soni
+    assert '✅ Bajarilgan: 1 ta' in text
     markup = message.answer.call_args.kwargs['reply_markup']
-    # bajarilganda ✅ tugmasi yo'q; bajarilgani borligi uchun tozalash tugmasi bor
-    assert buttons(markup) == ['✅ 1', '🗑 1', '🗑 2', '🧹 Bajarilganlarni tozalash']
+    assert buttons(markup) == ['1', '🧹 Bajarilganlarni tozalash (1)']
 
 
 async def test_pagination_buttons(db, user):
@@ -119,19 +119,50 @@ async def test_pagination_buttons(db, user):
         await db.add_task(user, f'Vazifa {i}')
 
     _, first = await tasks.render_tasks(db, user, 0, TODAY)
-    assert buttons(first)[-2:] == ['1/2', '▶️']
+    rows = [[b.text for b in row] for row in first.inline_keyboard]
+    assert rows[:2] == [['1', '2', '3', '4', '5'], ['6', '7', '8', '9', '10']]
+    assert rows[-1] == ['1/2', '▶️']
 
     text, last = await tasks.render_tasks(db, user, 5, TODAY)  # chegaradan tashqari -> oxirgi
     assert buttons(last)[-2:] == ['◀️', '2/2']
-    assert text.count('🕐') == 3
+    assert '13. Vazifa 0' in text and '10.' not in text
 
 
 async def test_done_callback(db, user, clock, make_callback):
     task_id = await db.add_task(user, 'Yugurish')
+    await db.add_task(user, 'Kitob')
     callback = make_callback(user)
     await tasks.task_done(callback, TaskCallback(action='done', task_id=task_id), db, clock)
     assert (await db.get_task(task_id, user)).is_done
-    assert '✅ <s>Yugurish</s>' in callback.message.edit_text.call_args.args[0]
+    text = callback.message.edit_text.call_args.args[0]
+    assert 'Yugurish' not in text and '✅ Bajarilgan: 1 ta' in text
+
+
+async def test_open_task_card(db, user, clock, make_callback):
+    task_id = await db.add_task(user, 'Hisobot', date(2026, 11, 18), repeat='daily')
+    callback = make_callback(user)
+    await tasks.task_open(callback, TaskCallback(action='open', task_id=task_id, page=0), db, clock)
+    text = callback.message.edit_text.call_args.args[0]
+    assert '<b>Hisobot</b>' in text and '2 kun oldin' in text and 'har kuni' in text
+    markup = callback.message.edit_text.call_args.kwargs['reply_markup']
+    assert buttons(markup) == ['✅ Bajarildi', '📅 Ertaga', "🗑 O'chirish", "◀️ Ro'yxatga qaytish"]
+
+
+async def test_move_to_tomorrow_keeps_time(db, user, clock, make_callback):
+    task_id = await db.add_task(user, 'Hisobot', date(2026, 11, 18), time(9, 0))
+    callback = make_callback(user)
+    data = TaskCallback(action='tomorrow', task_id=task_id)
+    await tasks.task_tomorrow(callback, data, db, clock)
+    task = await db.get_task(task_id, user)
+    assert (task.due_date, task.due_time) == (date(2026, 11, 21), time(9, 0))
+
+
+async def test_done_task_card_not_reopened(db, user, clock, make_callback):
+    task_id = await db.add_task(user, 'Hisobot')
+    await db.mark_done(task_id, user)
+    callback = make_callback(user)
+    await tasks.task_open(callback, TaskCallback(action='open', task_id=task_id), db, clock)
+    assert callback.answer.call_args.kwargs.get('show_alert') is True
 
 
 async def test_delete_callback(db, user, clock, make_callback):
@@ -155,7 +186,7 @@ async def test_change_page(db, user, clock, make_callback):
         await db.add_task(user, f'Vazifa {i}')
     callback = make_callback(user)
     await tasks.change_page(callback, PageCallback(page=1), db, clock)
-    assert '11. 🕐' in callback.message.edit_text.call_args.args[0]
+    assert '11. Vazifa' in callback.message.edit_text.call_args.args[0]
 
 
 async def test_stats(db, user, clock, make_message):
@@ -170,15 +201,31 @@ async def test_stats(db, user, clock, make_message):
     assert '50%' in text
 
 
-async def test_list_shows_due_and_overdue(db, user):
+async def test_list_grouped_by_sections(db, user):
     await db.add_task(user, 'Muddatsiz')
     await db.add_task(user, 'Ertangi', due_date=date(2026, 11, 21), due_time=time(9, 0))
-    await db.add_task(user, 'Kechagi', due_date=date(2026, 11, 19))
+    await db.add_task(user, 'Bugungi', due_date=TODAY, due_time=time(15, 0), repeat='daily')
+    await db.add_task(user, 'Eski', due_date=date(2026, 11, 15))
     text, _ = await tasks.render_tasks(db, user, 0, TODAY)
-    # eng yaqin muddat tepada, muddatsiz pastda
-    assert '1. 🕐 Kechagi — ⚠️ 19.11' in text
-    assert '2. 🕐 Ertangi — 📅 ertaga 09:00' in text
-    assert '3. 🕐 Muddatsiz' in text
+    expected = [
+        "⚠️ <b>Muddati o'tgan</b>",
+        '1. Eski · 15.11',
+        '📅 <b>Bugun</b>',
+        '2. Bugungi · 15:00 🔁',
+        '🗓 <b>Keyingi</b>',
+        '3. Ertangi · ertaga 09:00',
+        '📝 <b>Muddatsiz</b>',
+        '4. Muddatsiz',
+    ]
+    positions = [text.index(line) for line in expected]
+    assert positions == sorted(positions)
+
+
+async def test_all_done_message(db, user):
+    await db.mark_done(await db.add_task(user, 'A'), user)
+    text, markup = await tasks.render_tasks(db, user, 0, TODAY)
+    assert 'Hammasi bajarilgan' in text
+    assert buttons(markup) == ['🧹 Bajarilganlarni tozalash (1)']
 
 
 async def test_remind_done_button(db, user, clock, make_callback):

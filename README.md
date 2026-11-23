@@ -54,16 +54,19 @@ eng muhimi esa — **bot o'zi yozadi**, uni ochish shart emas:
   tavsif ko'rinadi (bot ishga tushganda Telegram'ga avtomatik yoziladi). `/start` dan keyin
   rasm va 3 qadamli qisqa yo'riqnoma keladi
 - **Vazifa qo'shish** — 2 qadam: nom → muddat. Menyusiz ham: istalgan matnni yozib yuborsangiz,
-  u vazifa nomi bo'ladi. Nom bo'sh, 200 belgidan uzun yoki menyu tugmasi bo'lsa rad etiladi.
+  u vazifa nomi bo'ladi. Nom 3 belgidan qisqa, harfsiz (`123`, `...`), 200 belgidan uzun yoki menyu tugmasi bo'lsa rad etiladi.
   Muddat: `bugun`, `ertaga`, `25.11`, `25.11.2026`, `ertaga 15:00`, `18:30`, `har kuni 09:00`,
   `har hafta` yoki tugmalar. O'tib ketgan sana/vaqt va mavjud bo'lmagan sana (`31.02`) qabul qilinmaydi
 - **⏰ Eslatma** — vaqtli vazifa uchun aniq vaqtda; xabarda **✅ Bajarildi** va
   **⏰ +15 daq / +1 soat / Ertaga** (kechiktirish) tugmalari
 - **🔁 Takrorlanuvchi vazifalar** — kunlik va haftalik; bajarilganda keyingisi avtomatik yaratiladi
 - **☀️ Bugungi reja** — har kuni ertalab o'zi keladi, istalgan payt tugma yoki `/today` bilan
-- **Vazifalar ro'yxati** — bitta xabarda, sahifalarga bo'lingan (10 tadan, ◀️ ▶️)
-- **✅ Bajarildi / 🗑 O'chirish / 🧹 Bajarilganlarni tozalash** — inline tugmalar; ro'yxat o'sha
-  xabarning o'zida yangilanadi
+- **Vazifalar ro'yxati** — bitta xabarda, bo'limlarga ajratilgan: ⚠️ Muddati o'tgan, 📅 Bugun,
+  🗓 Keyingi, 📝 Muddatsiz. Bajarilganlar ro'yxatni egallamaydi — faqat soni ko'rsatiladi.
+  10 tadan sahifalanadi (◀️ ▶️)
+- **Vazifa kartasi** — ro'yxat ostida faqat raqamlar (5 tadan qatorda); raqam bosilsa o'sha xabarda
+  karta ochiladi: ✅ Bajarildi, 📅 Ertaga ko'chirish, 🗑 O'chirish, ◀️ Ro'yxatga qaytish.
+  🧹 tugmasi bajarilganlarni bir bosishda tozalaydi
 - **📊 Statistika** — jami, bajarilgan, qolgan, muddati o'tgan va progress bar
 - **🛠 `/admin`** — bot egasi uchun (`ADMIN_ID`): foydalanuvchilar, faollar, vazifalar, eslatmalar
 - `/start`, `/today`, `/help`, `/cancel` buyruqlari, Telegram menyusida ko'rinadi;
@@ -197,7 +200,7 @@ make test     # ruff lint + format tekshiruvi + pytest (CI bilan aynan bir xil)
 make format   # kodni avtomatik formatlash
 ```
 
-74 ta test quyidagilarni qamraydi: bazaning CRUD amallari, muddat bo'yicha saralash va
+84 ta test quyidagilarni qamraydi: bazaning CRUD amallari, muddat bo'yicha saralash va
 sahifalash, boshqa foydalanuvchi vazifasiga kirishni taqiqlash, foreign key, eski sxemadan
 migratsiya, muddat matnini o'qish (to'g'ri va noto'g'ri formatlar), vazifa qo'shish oqimi,
 HTML escaping, ro'yxat va callbacklar, statistika, eslatmaning aniq vaqtda va faqat bir marta

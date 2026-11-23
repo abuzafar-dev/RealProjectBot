@@ -27,17 +27,15 @@ SHORT_DESCRIPTION = (
 
 
 def welcome_text(full_name: str) -> str:
-    """/start javobi — rasm ostidagi izoh (1024 belgigacha)."""
+    """/start javobi — rasm ostidagi izoh.
+
+    Imkoniyatlar ro'yxati tavsifda, ishlash tartibi rasmda bor — bu yerda takrorlanmaydi,
+    faqat salom va bitta aniq keyingi qadam.
+    """
     return (
         f'Assalomu alaykum, <b>{html.quote(full_name)}</b>! 👋\n'
-        "Men — <b>eslatuvchi vazifalar boti</b>. Ishlaringizni yozib qo'ysangiz, "
-        "vaqti kelganda o'zim eslataman — ilovani ochishni unutsangiz ham.\n"
         '\n'
-        '<b>Boshlash — 10 soniya:</b>\n'
-        '1. Vazifani shunchaki yozing: <i>Hisobot topshirish</i>\n'
-        '2. Muddatini yozing: <code>ertaga 15:00</code>\n'
-        '3. Tamom — ertaga 15:00 da ⏰ eslataman\n'
+        'Birinchi vazifangizni hoziroq yozib yuboring, masalan: <i>Hisobot topshirish</i>\n'
         '\n'
-        '<b>Yana:</b> 🔁 <code>har kuni 09:00</code> · ☀️ ertalabki reja · 📊 statistika\n'
-        'Batafsil: /help'
+        'Barcha imkoniyatlar: /help'
     )
