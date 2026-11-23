@@ -17,6 +17,7 @@ RUN useradd --create-home --uid 1000 bot \
     && chown bot:bot /app/data
 
 COPY bot ./bot
+COPY assets ./assets
 COPY main.py .
 
 USER bot

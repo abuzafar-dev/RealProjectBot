@@ -26,7 +26,10 @@ eng muhimi esa — **bot o'zi yozadi**, uni ochish shart emas:
 | Muammo | Botdagi yechim |
 |---|---|
 | Muhim ishni aniq vaqtda unutaman | `ertaga 15:00` deb yozilsa — aynan 15:00 da ⏰ eslatma, ichida ✅ tugma |
-| Bugun nima qilishim kerakligini bilmayman | Har kuni ertalab (08:00) ☀️ **bugungi reja** va muddati o'tganlar |
+| Eslatma noqulay paytda keldi | ⏰ **+15 daq / +1 soat / Ertaga** — bir bosishda kechiktiriladi va qayta keladi |
+| Har kungi odatlar (sport, dori, kitob) | `har kuni 09:00`, `har hafta` — 🔁 bajarilganda keyingisi o'zi yaratiladi |
+| Bugun nima qilishim kerakligini bilmayman | Har kuni ertalab (08:00) ☀️ **bugungi reja**, istalgan payt — «☀️ Bugungi reja» |
+| Yozish uchun ko'p qadam | Menyu shart emas — vazifani **shunchaki yozib yuborish** kifoya |
 | Ro'yxat chalkash | Eng yaqin muddat tepada, ⚠️ muddati o'tganlar belgilangan, bajarilganlar ~~chizilgan~~ |
 | Qancha ish qildim — ko'rinmaydi | 📊 statistika: jami, bajarilgan, qolgan, muddati o'tgan, progress |
 | Ilova o'rnatish, ro'yxatdan o'tish | Kerak emas — `/start` bosiladi, tamom |
@@ -34,8 +37,12 @@ eng muhimi esa — **bot o'zi yozadi**, uni ochish shart emas:
 **Nega aynan shunday, murakkabroq emas:**
 
 - **Ikki xil eslatma — yetarli va sodda.** Vaqtli ish (uchrashuv, qo'ng'iroq) aniq vaqtda kerak;
-  vaqtsiz ish (hisobot, uy ishi) esa shu kun ertalab ko'rinsa bas. Takrorlanuvchi eslatmalar,
-  kategoriyalar, ustuvorlik — bitta odamga ortiqcha murakkablik, shuning uchun qo'shilmadi.
+  vaqtsiz ish (hisobot, uy ishi) esa shu kun ertalab ko'rinsa bas.
+- **Takrorlanish — faqat kunlik va haftalik.** Botni real ishlatganda eng ko'p kerak bo'lgani shu
+  ikkisi bo'ldi (odatlar). Takrorlanuvchi vazifa bitta yozuv bo'lib turadi; bajarilganda keyingi
+  sanasi bilan yangisi yaratiladi, shuning uchun bajarilganlar tarixi va statistika buzilmaydi.
+  Bir necha kun o'tkazib yuborilsa ham keyingisi o'tmishda emas, kelajakda yaratiladi.
+  Kategoriyalar, ustuvorlik, cron-ifodalar — bitta odamga ortiqcha murakkablik, qo'shilmadi.
 - **Muddat ixtiyoriy.** `⏭ Muddatsiz` tugmasi bilan oddiy ro'yxat sifatida ham ishlatish mumkin.
 - **Spam yo'q.** Ertalabki reja faqat bugungi yoki muddati o'tgan ish bo'lsa keladi, kuniga bir marta.
 - **Yangi kutubxona/servis yo'q.** Eslatmalar bot ichidagi fon vazifasi (30 soniyada bir tekshiruv),
@@ -43,16 +50,26 @@ eng muhimi esa — **bot o'zi yozadi**, uni ochish shart emas:
 
 ## Imkoniyatlar
 
-- **Vazifa qo'shish** — 2 qadam: nom → muddat. Nom bo'sh yoki 200 belgidan uzun bo'lsa rad
-  etiladi. Muddat: `bugun`, `ertaga`, `25.11`, `25.11.2026`, `ertaga 15:00`, `18:30` yoki tugmalar.
-  O'tib ketgan sana/vaqt va mavjud bo'lmagan sana (`31.02`) qabul qilinmaydi
-- **⏰ Eslatma** — vaqtli vazifa uchun aniq vaqtda, xabardagi **✅ Bajarildi** tugmasi bilan
-- **☀️ Ertalabki reja** — bugungi va muddati o'tgan vazifalar, kuniga bir marta
+- **Birinchi tanishuv** — Start bosilishidan oldin bo'sh chatda bot nima qila olishi yozilgan
+  tavsif ko'rinadi (bot ishga tushganda Telegram'ga avtomatik yoziladi). `/start` dan keyin
+  rasm va 3 qadamli qisqa yo'riqnoma keladi
+- **Vazifa qo'shish** — 2 qadam: nom → muddat. Menyusiz ham: istalgan matnni yozib yuborsangiz,
+  u vazifa nomi bo'ladi. Nom bo'sh, 200 belgidan uzun yoki menyu tugmasi bo'lsa rad etiladi.
+  Muddat: `bugun`, `ertaga`, `25.11`, `25.11.2026`, `ertaga 15:00`, `18:30`, `har kuni 09:00`,
+  `har hafta` yoki tugmalar. O'tib ketgan sana/vaqt va mavjud bo'lmagan sana (`31.02`) qabul qilinmaydi
+- **⏰ Eslatma** — vaqtli vazifa uchun aniq vaqtda; xabarda **✅ Bajarildi** va
+  **⏰ +15 daq / +1 soat / Ertaga** (kechiktirish) tugmalari
+- **🔁 Takrorlanuvchi vazifalar** — kunlik va haftalik; bajarilganda keyingisi avtomatik yaratiladi
+- **☀️ Bugungi reja** — har kuni ertalab o'zi keladi, istalgan payt tugma yoki `/today` bilan
 - **Vazifalar ro'yxati** — bitta xabarda, sahifalarga bo'lingan (10 tadan, ◀️ ▶️)
-- **✅ Bajarildi / 🗑 O'chirish** — inline tugmalar; ro'yxat o'sha xabarning o'zida yangilanadi
+- **✅ Bajarildi / 🗑 O'chirish / 🧹 Bajarilganlarni tozalash** — inline tugmalar; ro'yxat o'sha
+  xabarning o'zida yangilanadi
 - **📊 Statistika** — jami, bajarilgan, qolgan, muddati o'tgan va progress bar
-- `/start`, `/help`, `/cancel` buyruqlari, Telegram menyusida ko'rinadi
-- Har bir foydalanuvchi faqat **o'z** vazifalarini ko'radi va o'zgartira oladi
+- **🛠 `/admin`** — bot egasi uchun (`ADMIN_ID`): foydalanuvchilar, faollar, vazifalar, eslatmalar
+- `/start`, `/today`, `/help`, `/cancel` buyruqlari, Telegram menyusida ko'rinadi;
+  noma'lum buyruq va matn bo'lmagan xabarga tushunarli javob beriladi
+- Har bir foydalanuvchi faqat **o'z** vazifalarini ko'radi va o'zgartira oladi; bot faqat
+  shaxsiy chatda ishlaydi (guruhda vazifalar aralashib ketmasligi uchun)
 
 ## Texnologiyalar
 
@@ -100,13 +117,28 @@ scripts/ci.sh           lokal va CI'da bir xil tekshiruv
   va tugma bosilganda `edit_text` bilan yangilanadi.
 - **Eslatma ikki marta kelmaydi va yo'qolmaydi.** Har bir yuborish bazada belgilanadi
   (`tasks.reminded`, `users.last_digest`). Bot o'chiq turganda vaqti o'tgan eslatma ishga
-  tushishi bilan yuboriladi; qayta ishga tushirish takroriy xabar bermaydi. Telegram vaqtincha
-  ishlamasa, eslatma belgilanmaydi va keyingi tekshiruvda qayta yuboriladi. Botni bloklagan
-  foydalanuvchi boshqalarga eslatma yetishini to'xtatmaydi.
+  tushishi bilan yuboriladi; qayta ishga tushirish takroriy xabar bermaydi. Xatolar ikkiga
+  ajratiladi: doimiy (bot bloklangan, chat topilmadi) — eslatma belgilanadi va qayta
+  urinilmaydi; vaqtinchalik (tarmoq) — belgilanmaydi va keyingi tekshiruvda qayta yuboriladi.
+  Bitta foydalanuvchidagi xato navbatdagi boshqa eslatmalarni hech qachon to'xtatmaydi.
+- **Eski tugmalar buzilmaydi.** Kechiktirish uchun yangi `SnoozeCallback` qo'shildi, mavjud
+  `RemindCallback` o'zgartirilmadi — avval yuborilgan eslatmalardagi ✅ tugmasi ishlashda davom etadi.
 - **Vaqt — dependency.** Joriy vaqt `Clock` obyekti orqali olinadi, shuning uchun testlarda
   "hozir"ni qotirib, eslatmalarni soatni kutmasdan tekshirish mumkin.
 - **Migratsiya.** Eski bazada yangi ustunlar (`done_at`, `due_date`, `due_time`, `reminded`,
-  `last_digest`) bo'lmasa, ishga tushishda avtomatik qo'shiladi. Ma'lumotlar yo'qolmaydi.
+  `last_digest`, `repeat`) bo'lmasa, ishga tushishda avtomatik qo'shiladi. Ma'lumotlar yo'qolmaydi.
+
+## Real ishlatishda topilgan va tuzatilgan xatolar
+
+Bot haqiqiy aiogram `Dispatcher` orqali foydalanuvchi ssenariylari bilan sinab ko'rildi.
+Topilgan har bir xato uchun avval yiqiladigan test yozildi, keyin tuzatildi:
+
+| Xato | Oqibati | Tuzatish |
+|---|---|---|
+| Bitta chatga yuborib bo'lmasa (`chat not found`) eslatmalar sikli yiqilardi | Shu vazifadan keyingi **barcha foydalanuvchilarning** eslatmalari har 30 soniyada qayta tiqilib qolardi | Doimiy va vaqtinchalik xatolar ajratildi, har bir xabar alohida ishlanadi |
+| Nom so'ralganda menyu tugmasi bosilsa | `📋 Vazifalarim` vazifa nomi bo'lib saqlanardi | Menyu tugmalari har qanday holatda menyu sifatida ishlaydi, nom sifatida rad etiladi |
+| Oddiy matn yozilsa | Bot umuman javob bermasdi | Matn — tez qo'shish; noma'lum buyruq va stikerga yo'riqnoma |
+| Bot guruhga qo'shilsa | Guruhda vazifa qo'shilib, eslatmalar shaxsiy chatga ketardi | Faqat shaxsiy chat xabarlari qayta ishlanadi |
 
 ## Ishga tushirish
 
@@ -138,6 +170,13 @@ python main.py
 | `LOG_LEVEL` | yo'q | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `TIMEZONE` | yo'q | `Asia/Tashkent` | eslatmalar vaqt zonasi |
 | `DIGEST_HOUR` | yo'q | `8` | ertalabki reja soati (0..23) |
+| `ADMIN_ID` | yo'q | — | bot egasining Telegram ID'si, `/admin` uchun |
+
+### Start'dan oldingi rasm
+
+Tavsif matni avtomatik o'rnatiladi, lekin bo'sh chatdagi rasmni Telegram faqat @BotFather orqali
+qabul qiladi: `/setdescriptionpic` → botni tanlang → `assets/welcome.png` ni yuboring.
+Rasmni qayta yaratish: `make banner` (skript: `scripts/make_banner.py`).
 
 ## Docker
 
@@ -158,9 +197,11 @@ make test     # ruff lint + format tekshiruvi + pytest (CI bilan aynan bir xil)
 make format   # kodni avtomatik formatlash
 ```
 
-49 ta test quyidagilarni qamraydi: bazaning CRUD amallari, muddat bo'yicha saralash va
+74 ta test quyidagilarni qamraydi: bazaning CRUD amallari, muddat bo'yicha saralash va
 sahifalash, boshqa foydalanuvchi vazifasiga kirishni taqiqlash, foreign key, eski sxemadan
 migratsiya, muddat matnini o'qish (to'g'ri va noto'g'ri formatlar), vazifa qo'shish oqimi,
 HTML escaping, ro'yxat va callbacklar, statistika, eslatmaning aniq vaqtda va faqat bir marta
 kelishi, o'tib ketgan eslatma, ertalabki reja (kuniga bir marta, bo'sh bo'lsa yuborilmaydi),
-botni bloklagan foydalanuvchi.
+botni bloklagan foydalanuvchi, `chat not found` va tarmoq xatosida navbat tiqilmasligi,
+takrorlanuvchi vazifalar (o'tkazib yuborilgan kunlar bilan), kechiktirish, tozalash, tez
+qo'shish, menyu tugmasining nom bo'lmasligi, admin huquqi.

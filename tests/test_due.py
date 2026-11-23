@@ -2,7 +2,7 @@ from datetime import date, datetime, time
 
 import pytest
 
-from bot.due import Due, DueParseError, format_due, parse_due
+from bot.due import Due, DueParseError, format_due, next_occurrence, parse_due
 
 NOW = datetime(2026, 11, 20, 10, 0)
 TODAY = NOW.date()
@@ -49,3 +49,35 @@ def test_format_due():
     assert format_due(date(2026, 11, 21), None, TODAY) == 'ertaga'
     assert format_due(date(2026, 12, 3), None, TODAY) == '03.12'
     assert format_due(date(2027, 1, 3), None, TODAY) == '03.01.2027'
+
+
+@pytest.mark.parametrize(
+    ('text', 'expected'),
+    [
+        ('har kuni 18:00', Due(TODAY, time(18, 0), 'daily')),
+        ('har kuni 09:00', Due(date(2026, 11, 21), time(9, 0), 'daily')),  # bugungisi o'tgan
+        ('Har kuni', Due(TODAY, None, 'daily')),
+        ('har hafta 08:00', Due(date(2026, 11, 27), time(8, 0), 'weekly')),
+        ('har hafta', Due(TODAY, None, 'weekly')),
+    ],
+)
+def test_parse_repeat(text, expected):
+    assert parse_due(text, NOW) == expected
+
+
+@pytest.mark.parametrize('text', ['har', 'har oy', 'har kuni ertalab', 'har kuni 09:00 x'])
+def test_parse_repeat_rejects(text):
+    with pytest.raises(DueParseError):
+        parse_due(text, NOW)
+
+
+def test_next_occurrence_skips_missed_days():
+    # 3 kun oldingi vazifa bugun bajarildi — keyingisi o'tmishda emas, kelajakda bo'ladi
+    assert next_occurrence(date(2026, 11, 17), time(9, 0), 'daily', NOW) == date(2026, 11, 21)
+    assert next_occurrence(date(2026, 11, 17), None, 'daily', NOW) == TODAY
+    assert next_occurrence(TODAY, time(18, 0), 'daily', NOW) == date(2026, 11, 21)
+    assert next_occurrence(date(2026, 11, 13), time(9, 0), 'weekly', NOW) == date(2026, 11, 27)
+
+
+def test_format_due_repeat():
+    assert format_due(TODAY, time(9, 0), TODAY, 'daily') == 'bugun 09:00 🔁 har kuni'

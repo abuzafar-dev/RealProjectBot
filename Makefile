@@ -1,4 +1,4 @@
-.PHONY: help install run test lint format docker-up docker-down docker-logs
+.PHONY: help install run test lint format banner docker-up docker-down docker-logs
 
 PY := .venv/bin/python
 
@@ -7,6 +7,7 @@ help:
 	@echo "make test         — lint + format + testlar (CI bilan bir xil)"
 	@echo "make lint         — ruff check"
 	@echo "make format       — kodni avtomatik formatlash"
+	@echo "make banner       — assets/welcome.png rasmini qayta yaratish"
 	@echo "make docker-up    — Docker'da ishga tushirish"
 	@echo "make docker-logs  — Docker loglari"
 	@echo "make docker-down  — Docker'ni to'xtatish"
@@ -38,6 +39,9 @@ lint: install
 format: install
 	.venv/bin/ruff format .
 	.venv/bin/ruff check --fix .
+
+banner:
+	uv run -q --no-project --with pillow python scripts/make_banner.py
 
 docker-up: .env
 	docker compose up --build -d

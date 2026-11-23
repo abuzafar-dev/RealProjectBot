@@ -18,6 +18,7 @@ class Settings:
     log_level: str
     timezone: ZoneInfo
     digest_hour: int
+    admin_id: int | None = None
 
 
 def load_settings() -> Settings:
@@ -38,10 +39,15 @@ def load_settings() -> Settings:
     if not hour.isdigit() or int(hour) > 23:
         raise ConfigError(f"DIGEST_HOUR 0..23 oralig'ida bo'lishi kerak, berilgan: {hour!r}")
 
+    admin = os.getenv('ADMIN_ID', '').strip()
+    if admin and not admin.isdigit():
+        raise ConfigError(f"ADMIN_ID raqam bo'lishi kerak (Telegram ID), berilgan: {admin!r}")
+
     return Settings(
         bot_token=token,
         db_path=os.getenv('DB_PATH', 'tasks.db'),
         log_level=os.getenv('LOG_LEVEL', 'INFO').upper(),
         timezone=timezone,
         digest_hour=int(hour),
+        admin_id=int(admin) if admin else None,
     )

@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, datetime, time
 
 import aiosqlite
 import pytest
@@ -92,3 +92,28 @@ async def test_migrates_old_schema(tmp_path):
         assert (await database.get_task(new_id, 1)).due_time == time(9, 0)
     finally:
         await database.close()
+
+
+async def test_reschedule_and_clear_done(db):
+    await db.add_user(1, 'Ali')
+    task_id = await db.add_task(1, 'A', date(2026, 11, 20), time(9, 0))
+    await db.mark_reminded(task_id)
+    assert await db.reschedule(task_id, 1, date(2026, 11, 21), time(10, 0))
+    assert not await db.reschedule(task_id, 2, date(2026, 11, 21), time(10, 0))  # begona
+    [due] = await db.get_due_reminders(datetime(2026, 11, 21, 10, 0))
+    assert due.id == task_id
+
+    await db.mark_done(task_id, 1)
+    await db.add_task(1, 'B')
+    assert await db.clear_done(1) == 1
+    assert [t.title for t in await db.get_tasks(1)] == ['B']
+
+
+async def test_global_stats(db):
+    await db.add_user(1, 'Ali')
+    await db.add_user(2, 'Vali')
+    await db.add_task(1, 'A', date(2026, 11, 20), time(9, 0))
+    await db.mark_done(await db.add_task(1, 'B'), 1)
+    stats = await db.get_global_stats()
+    assert (stats.users, stats.active_users, stats.tasks, stats.done) == (2, 1, 2, 1)
+    assert stats.pending_reminders == 1

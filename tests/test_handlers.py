@@ -2,9 +2,19 @@ from datetime import date, time
 from unittest.mock import AsyncMock
 
 import pytest
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.methods import SendPhoto
 
+from bot import texts
 from bot.handlers import start, tasks
-from bot.keyboards import NO_DUE, PageCallback, RemindCallback, TaskCallback
+from bot.keyboards import (
+    MY_TASKS,
+    NO_DUE,
+    PageCallback,
+    RemindCallback,
+    SnoozeCallback,
+    TaskCallback,
+)
 from bot.states import AddTask
 from tests.conftest import NOW
 
@@ -21,11 +31,26 @@ def buttons(markup):
     return [button.text for row in markup.inline_keyboard for button in row]
 
 
-async def test_start_registers_user(db, make_message):
+async def test_start_registers_user_and_sends_welcome_photo(db, make_message):
     message = make_message('/start', user_id=5)
     await start.start_handler(message, AsyncMock(), db)
     assert await db.count_users() == 1
+    caption = message.answer_photo.call_args.kwargs['caption']
+    assert 'Test User' in caption and 'ertaga 15:00' in caption
+    assert len(caption) <= 1024  # Telegram izoh chegarasi
+
+
+async def test_start_falls_back_to_text_if_photo_fails(db, make_message):
+    message = make_message('/start')
+    message.answer_photo.side_effect = TelegramBadRequest(SendPhoto(chat_id=1, photo='x'), 'bad')
+    await start.start_handler(message, AsyncMock(), db)
     assert 'Test User' in message.answer.call_args.args[0]
+
+
+def test_profile_texts_fit_telegram_limits():
+    assert len(texts.DESCRIPTION) <= 512
+    assert len(texts.SHORT_DESCRIPTION) <= 120
+    assert texts.WELCOME_IMAGE.exists()
 
 
 async def add_flow(state, db, clock, make_message, title, due):
@@ -48,7 +73,7 @@ async def test_add_task_with_time(db, state, clock, make_message):
     message = await add_flow(state, db, clock, make_message, 'Hisobot', 'ertaga 15:00')
     [task] = await db.get_tasks(1)
     assert (task.due_date, task.due_time) == (date(2026, 11, 21), time(15, 0))
-    assert 'ertaga 15:00 da eslataman' in message.answer.call_args.args[0]
+    assert 'ertaga 15:00 — shu vaqtda eslataman' in message.answer.call_args.args[0]
 
 
 async def test_bad_due_keeps_state(db, state, clock, make_message):
@@ -66,26 +91,27 @@ async def test_invalid_title_rejected(state, make_message, text):
     assert await state.get_state() is None
 
 
-async def test_my_tasks_empty(db, clock, make_message):
+async def test_my_tasks_empty(db, state, clock, make_message):
     message = make_message()
-    await tasks.my_tasks(message, db, clock)
+    await tasks.my_tasks(message, state, db, clock)
     assert message.answer.call_args.args[0] == tasks.EMPTY_TEXT
 
 
-async def test_my_tasks_single_message_with_buttons(db, user, clock, make_message):
+async def test_my_tasks_single_message_with_buttons(db, user, state, clock, make_message):
     await db.add_task(user, 'Yugurish')
     done_id = await db.add_task(user, 'Kitob')
     await db.mark_done(done_id, user)
 
     message = make_message(user_id=user)
-    await tasks.my_tasks(message, db, clock)
+    await tasks.my_tasks(message, state, db, clock)
 
     message.answer.assert_awaited_once()
     text = message.answer.call_args.args[0]
     assert '1. 🕐 Yugurish' in text
     assert '2. ✅ <s>Kitob</s>' in text
     markup = message.answer.call_args.kwargs['reply_markup']
-    assert buttons(markup) == ['✅ 1', '🗑 1', '🗑 2']  # bajarilganda ✅ tugmasi yo'q
+    # bajarilganda ✅ tugmasi yo'q; bajarilgani borligi uchun tozalash tugmasi bor
+    assert buttons(markup) == ['✅ 1', '🗑 1', '🗑 2', '🧹 Bajarilganlarni tozalash']
 
 
 async def test_pagination_buttons(db, user):
@@ -155,9 +181,106 @@ async def test_list_shows_due_and_overdue(db, user):
     assert '3. 🕐 Muddatsiz' in text
 
 
-async def test_remind_done_button(db, user, make_callback):
+async def test_remind_done_button(db, user, clock, make_callback):
     task_id = await db.add_task(user, 'Hisobot')
     callback = make_callback(user)
-    await tasks.remind_done(callback, RemindCallback(task_id=task_id), db)
+    await tasks.remind_done(callback, RemindCallback(task_id=task_id), db, clock)
     assert (await db.get_task(task_id, user)).is_done
     assert '<s>Hisobot</s>' in callback.message.edit_text.call_args.args[0]
+
+
+# --- topilgan xatolar uchun regressiya testlari ---
+
+
+async def test_menu_button_is_not_saved_as_title(state, make_message):
+    await state.set_state(AddTask.title)
+    message = make_message(MY_TASKS)
+    await tasks.add_task_title(message, state)
+    assert await state.get_state() == AddTask.title  # nom hali ham kutilmoqda
+    assert 'menyu tugmasi' in message.answer.call_args.args[0]
+
+
+async def test_menu_button_cancels_add_flow(db, state, clock, make_message):
+    await tasks.add_task_title(make_message('Hisobot'), state)
+    await tasks.my_tasks(make_message(MY_TASKS), state, db, clock)
+    assert await state.get_state() is None
+
+
+async def test_quick_add_free_text(db, state, clock, make_message):
+    await tasks.quick_add(make_message("Kitob o'qish"), state)
+    assert await state.get_state() == AddTask.due
+    await tasks.add_task_due(make_message(NO_DUE), state, db, clock)
+    [task] = await db.get_tasks(1)
+    assert task.title == "Kitob o'qish"
+
+
+# --- yangi imkoniyatlar ---
+
+
+async def test_recurring_task_creates_next_on_done(
+    db, user, state, clock, make_callback, make_message
+):
+    await add_flow(state, db, clock, make_message, 'Sport', 'har kuni 09:00')
+    [task] = await db.get_tasks(user)
+    # 10:00 da 09:00 o'tib ketgan — birinchisi ertaga
+    assert (task.due_date, task.due_time, task.repeat) == (date(2026, 11, 21), time(9), 'daily')
+
+    callback = make_callback(user)
+    await tasks.remind_done(callback, RemindCallback(task_id=task.id), db, clock)
+    assert 'Keyingisi' in callback.message.edit_text.call_args.args[0]
+    open_tasks = [t for t in await db.get_tasks(user) if not t.is_done]
+    assert [(t.due_date, t.repeat) for t in open_tasks] == [(date(2026, 11, 22), 'daily')]
+
+
+async def test_snooze_reschedules_and_rearms_reminder(db, user, clock, make_callback):
+    task_id = await db.add_task(user, "Qo'ng'iroq", TODAY, time(9, 30))
+    await db.mark_reminded(task_id)
+    callback = make_callback(user)
+    await tasks.snooze(callback, SnoozeCallback(task_id=task_id, minutes=15), db, clock)
+    task = await db.get_task(task_id, user)
+    assert (task.due_date, task.due_time) == (TODAY, time(10, 15))
+    assert [t.id for t in await db.get_due_reminders(NOW.replace(minute=15))] == [task_id]
+
+
+async def test_snooze_tomorrow_keeps_time(db, user, clock, make_callback):
+    task_id = await db.add_task(user, 'Hisobot', TODAY, time(9, 30))
+    await tasks.snooze(make_callback(user), SnoozeCallback(task_id=task_id, minutes=0), db, clock)
+    task = await db.get_task(task_id, user)
+    assert (task.due_date, task.due_time) == (date(2026, 11, 21), time(9, 30))
+
+
+async def test_snooze_foreign_task_rejected(db, user, clock, make_callback):
+    task_id = await db.add_task(user, 'Hisobot', TODAY, time(9, 30))
+    stranger = make_callback(user_id=777)
+    await tasks.snooze(stranger, SnoozeCallback(task_id=task_id, minutes=15), db, clock)
+    assert (await db.get_task(task_id, user)).due_time == time(9, 30)
+
+
+async def test_clear_done(db, user, clock, make_callback):
+    keep = await db.add_task(user, 'Qoladi')
+    for title in ('A', 'B'):
+        await db.mark_done(await db.add_task(user, title), user)
+    callback = make_callback(user)
+    await tasks.clear_done(callback, db, clock)
+    assert [t.id for t in await db.get_tasks(user)] == [keep]
+    assert '2 ta' in callback.answer.call_args.args[0]
+
+
+async def test_today_plan(db, user, state, clock, make_message):
+    message = make_message(user_id=user)
+    await tasks.today_plan(message, state, db, clock)
+    assert "vazifa yo'q" in message.answer.call_args.args[0]
+
+    await db.add_task(user, 'Bugungi', TODAY)
+    await tasks.today_plan(message, state, db, clock)
+    assert 'Bugungi' in message.answer.call_args.args[0]
+
+
+async def test_admin_only_for_owner(db, user, make_message):
+    stranger = make_message('/admin', user_id=2)
+    await start.admin_handler(stranger, db, admin_id=1)
+    assert 'Admin' not in stranger.answer.call_args.args[0]
+
+    owner = make_message('/admin', user_id=1)
+    await start.admin_handler(owner, db, admin_id=1)
+    assert 'Foydalanuvchilar: 1' in owner.answer.call_args.args[0]

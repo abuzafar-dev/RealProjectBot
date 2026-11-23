@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     done_at    TEXT,
     due_date   TEXT,                -- YYYY-MM-DD, ixtiyoriy
     due_time   TEXT,                -- HH:MM, bo'lsa shu vaqtda eslatma yuboriladi
-    reminded   INTEGER NOT NULL DEFAULT 0
+    reminded   INTEGER NOT NULL DEFAULT 0,
+    repeat     TEXT                 -- 'daily' | 'weekly', bo'lsa bajarilganda keyingisi yaratiladi
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks (user_id, is_done);
@@ -35,6 +36,7 @@ MIGRATIONS = [
     ('tasks', 'due_time', 'TEXT'),
     ('tasks', 'reminded', 'INTEGER NOT NULL DEFAULT 0'),
     ('users', 'last_digest', 'TEXT'),
+    ('tasks', 'repeat', 'TEXT'),
 ]
 
 
@@ -48,6 +50,7 @@ class Task:
     done_at: str | None
     due_date: date | None = None
     due_time: time | None = None
+    repeat: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +67,15 @@ class Stats:
         return round(self.done * 100 / self.total) if self.total else 0
 
 
+@dataclass(frozen=True, slots=True)
+class GlobalStats:
+    users: int
+    active_users: int  # bajarilmagan vazifasi borlar
+    tasks: int
+    done: int
+    pending_reminders: int
+
+
 def _to_task(row: aiosqlite.Row) -> Task:
     return Task(
         id=row['id'],
@@ -74,6 +86,7 @@ def _to_task(row: aiosqlite.Row) -> Task:
         done_at=row['done_at'],
         due_date=date.fromisoformat(row['due_date']) if row['due_date'] else None,
         due_time=time.fromisoformat(row['due_time']) if row['due_time'] else None,
+        repeat=row['repeat'],
     )
 
 
@@ -137,15 +150,21 @@ class Database:
     # --- tasks ---
 
     async def add_task(
-        self, user_id: int, title: str, due_date: date | None = None, due_time: time | None = None
+        self,
+        user_id: int,
+        title: str,
+        due_date: date | None = None,
+        due_time: time | None = None,
+        repeat: str | None = None,
     ) -> int:
         async with self.conn.execute(
-            'INSERT INTO tasks (user_id, title, due_date, due_time) VALUES (?, ?, ?, ?)',
+            'INSERT INTO tasks (user_id, title, due_date, due_time, repeat) VALUES (?, ?, ?, ?, ?)',
             (
                 user_id,
                 title,
                 due_date.isoformat() if due_date else None,
                 due_time.strftime('%H:%M') if due_time else None,
+                repeat,
             ),
         ) as cursor:
             task_id = cursor.lastrowid
@@ -177,6 +196,18 @@ class Database:
         )
         return changed > 0
 
+    async def reschedule(self, task_id: int, user_id: int, due_date: date, due_time: time) -> bool:
+        """Eslatmani kechiktirish: yangi vaqt va eslatma qayta yuboriladi."""
+        changed = await self._write(
+            'UPDATE tasks SET due_date = ?, due_time = ?, reminded = 0 '
+            'WHERE id = ? AND user_id = ? AND is_done = 0',
+            (due_date.isoformat(), due_time.strftime('%H:%M'), task_id, user_id),
+        )
+        return changed > 0
+
+    async def clear_done(self, user_id: int) -> int:
+        return await self._write('DELETE FROM tasks WHERE user_id = ? AND is_done = 1', (user_id,))
+
     async def delete_task(self, task_id: int, user_id: int) -> bool:
         changed = await self._write(
             'DELETE FROM tasks WHERE id = ? AND user_id = ?', (task_id, user_id)
@@ -190,6 +221,19 @@ class Database:
         ) as cursor:
             total, done = await cursor.fetchone()
         return Stats(total=total, done=done)
+
+    async def get_global_stats(self) -> GlobalStats:
+        async with self.conn.execute(
+            'SELECT '
+            '(SELECT COUNT(*) FROM users), '
+            '(SELECT COUNT(DISTINCT user_id) FROM tasks WHERE is_done = 0), '
+            '(SELECT COUNT(*) FROM tasks), '
+            '(SELECT COUNT(*) FROM tasks WHERE is_done = 1), '
+            '(SELECT COUNT(*) FROM tasks WHERE is_done = 0 AND reminded = 0 '
+            'AND due_time IS NOT NULL)'
+        ) as cursor:
+            row = await cursor.fetchone()
+        return GlobalStats(*row)
 
     async def count_overdue(self, user_id: int, today: date) -> int:
         async with self.conn.execute(

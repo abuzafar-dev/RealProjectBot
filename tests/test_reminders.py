@@ -2,7 +2,7 @@ from datetime import date, datetime, time
 from unittest.mock import AsyncMock
 
 import pytest
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError
 from aiogram.methods import SendMessage
 
 from bot.reminders import tick
@@ -98,3 +98,45 @@ async def test_blocked_user_does_not_break_others(db, bot, clock):
     # 1-foydalanuvchiga qayta urinilmaydi, 2-chisiga eslatma ham, reja ham bir marta yetadi
     calls = [call.args[0] for call in bot.send_message.call_args_list]
     assert calls.count(1) == 2 and calls.count(2) == 2  # eslatma + reja
+
+
+async def test_bad_chat_does_not_block_queue(db, bot, clock):
+    # "chat not found" kabi doimiy xato bitta vazifada bo'lsa, qolgan eslatmalar tiqilib qolmasin
+    await db.add_user(1, 'Ali')
+    await db.add_user(2, 'Vali')
+    await db.add_task(1, 'A', date(2026, 11, 20), time(9, 0))
+    await db.add_task(2, 'B', date(2026, 11, 20), time(9, 30))
+
+    async def send(chat_id, text, **kwargs):
+        if chat_id == 1:
+            raise TelegramBadRequest(SendMessage(chat_id=1, text=text), 'chat not found')
+
+    bot.send_message.side_effect = send
+    await tick(bot, db, clock, DIGEST_HOUR)
+    await tick(bot, db, clock, DIGEST_HOUR)
+    calls = [call.args[0] for call in bot.send_message.call_args_list]
+    assert calls.count(1) == 2  # eslatma + reja, keyin qayta urinilmaydi
+    assert calls.count(2) == 2
+
+
+async def test_network_error_retried_without_blocking_others(db, bot, clock):
+    await db.add_user(1, 'Ali')
+    await db.add_user(2, 'Vali')
+    await db.add_task(1, 'A', date(2026, 11, 20), time(9, 0))
+    await db.add_task(2, 'B', date(2026, 11, 20), time(9, 30))
+    fail = {'on': True}
+
+    async def send(chat_id, text, **kwargs):
+        if chat_id == 1 and fail['on']:
+            raise TelegramNetworkError(SendMessage(chat_id=1, text=text), 'timeout')
+
+    bot.send_message.side_effect = send
+    await tick(bot, db, clock, DIGEST_HOUR)
+    assert any(c.args[0] == 2 and 'Eslatma' in c.args[1] for c in bot.send_message.call_args_list)
+
+    fail['on'] = False  # tarmoq tiklandi — 1-foydalanuvchiga eslatma qayta yuboriladi
+    await tick(bot, db, clock, DIGEST_HOUR)
+    reminders_to_1 = [
+        c for c in bot.send_message.call_args_list if c.args[0] == 1 and 'Eslatma' in c.args[1]
+    ]
+    assert len(reminders_to_1) == 2  # 1-urinish (xato) + qayta yuborish
