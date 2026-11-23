@@ -560,3 +560,22 @@ async def test_lead_setting(db, user, make_callback):
     assert '1 soat oldin' in callback.message.edit_text.call_args.args[0]
     await settings.settings_change(callback, SettingsCallback(action='lead', value=0), db)
     assert (await db.get_settings(user)).lead_minutes is None
+
+
+async def test_monthly_quick_add_and_next_month(
+    db, user, state, clock, make_callback, make_message
+):
+    message = make_message("Ijara to'lash har oy 5 10:00")
+    await tasks.quick_add(message, state, db, clock)
+    [task] = await db.get_tasks(user)
+    assert (task.title, task.due_date, task.repeat) == (
+        "Ijara to'lash",
+        date(2026, 12, 5),
+        'monthly:5',
+    )
+    assert 'har oy 5-kuni' in message.answer.call_args.args[0]
+
+    callback = make_callback(user)
+    await tasks.remind_done(callback, RemindCallback(task_id=task.id), db, clock)
+    open_tasks = [t for t in await db.get_tasks(user) if not t.is_done]
+    assert [(t.due_date, t.repeat) for t in open_tasks] == [(date(2027, 1, 5), 'monthly:5')]

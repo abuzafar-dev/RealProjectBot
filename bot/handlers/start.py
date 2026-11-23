@@ -37,7 +37,7 @@ HELP_TEXT = (
     "3. Shoshilinch bo'lmasa — «☀️ Ertalabki rejada»: o'sha kuni ertalab ro'yxatda "
     "ko'rsataman. <code>ertaga 15:00</code> deb bir yo'la yozsangiz ham bo'ladi\n"
     '4. <code>har kuni 09:00</code>, <code>har seshanba 08:30</code>, '
-    '<code>ish kunlari 07:00</code> — 🔁 takrorlanuvchi vazifa: '
+    '<code>ish kunlari 07:00</code>, <code>har oy 5 10:00</code> — 🔁 takrorlanuvchi vazifa: '
     'bajarilganda keyingisi avtomatik yaratiladi\n'
     "5. 📋 Ro'yxatda raqamni bosing — vazifa kartasi: bajarildi, vaqt/nomni o'zgartirish, "
     "ertaga ko'chirish, o'chirish\n"

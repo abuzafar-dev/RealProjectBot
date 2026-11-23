@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     due_date   TEXT,                -- YYYY-MM-DD, ixtiyoriy
     due_time   TEXT,                -- HH:MM, bo'lsa shu vaqtda eslatma yuboriladi
     reminded   INTEGER NOT NULL DEFAULT 0,
-    repeat     TEXT,                -- 'daily' | 'weekly' | 'weekdays'; bajarilganda keyingisi
+    repeat     TEXT,                -- 'daily' | 'weekly' | 'weekdays' | 'monthly:<kun>'; takror
     important  INTEGER NOT NULL DEFAULT 0,      -- ⭐ bo'limi ichida tepada turadi
     pre_reminded INTEGER NOT NULL DEFAULT 0     -- oldindan ogohlantirish yuborilganmi
 );

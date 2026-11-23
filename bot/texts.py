@@ -14,7 +14,7 @@ DESCRIPTION = (
     'Nima qila olaman:\n'
     '• ⏰ Aniq vaqtda eslatma (+15 daq / +1 soat / ertaga kechiktirish)\n'
     '• ☀️ Har kuni ertalab bugungi reja\n'
-    '• 🔁 Har kuni / har hafta takrorlanuvchi vazifalar\n'
+    '• 🔁 Har kuni / har hafta / har oy takrorlanuvchi vazifalar\n'
     "• 📋 Ro'yxat: ✅ bajarildi, 🗑 o'chirish\n"
     '• 📊 Statistika, 🔥 ketma-ketlik va 📈 haftalik hisobot\n'
     '\n'

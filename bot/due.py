@@ -9,8 +9,10 @@ Qabul qilinadigan formatlar:
     2 soatdan keyin | 30 daqiqadan keyin      — aniq vaqt hozirdan hisoblab
     har kuni [09:00] | har hafta [09:00]      — takrorlanuvchi vazifa
     har dushanba [09:00] | ish kunlari [08:00] — hafta kuni / dushanba–juma takrori
+    har oy [5] [09:00]                        — har oyning shu (yoki 5-) kunida
 """
 
+import calendar
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -27,7 +29,7 @@ class DueParseError(ValueError):
 class Due:
     day: date
     at: time | None = None
-    repeat: str | None = None  # 'daily' | 'weekly' | 'weekdays'
+    repeat: str | None = None  # 'daily' | 'weekly' | 'weekdays' | 'monthly:<kun>'
 
 
 WEEKDAYS = ['dushanba', 'seshanba', 'chorshanba', 'payshanba', 'juma', 'shanba', 'yakshanba']
@@ -36,8 +38,21 @@ REPEAT_STEP = {'daily': timedelta(days=1), 'weekly': timedelta(days=7)}
 RELATIVE_UNITS = {'kundan': 'days', 'soatdan': 'hours', 'daqiqadan': 'minutes'}
 
 
+def monthly(anchor: int) -> str:
+    return f'monthly:{anchor}'
+
+
+def _month_day(year: int, month: int, anchor: int) -> date:
+    """Oyning anchor-kuni; oyda bunday kun bo'lmasa (30.02) — oxirgi kuni."""
+    return date(year, month, min(anchor, calendar.monthrange(year, month)[1]))
+
+
 def advance(day: date, repeat: str) -> date:
     """Takrorlanuvchi vazifaning bir qadam keyingi kuni."""
+    if repeat.startswith('monthly:'):
+        # Asl kun repeat ichida saqlanadi: 31-yanvar -> 28-fevral -> 31-mart (30 ga qotib qolmaydi)
+        year, month = (day.year + 1, 1) if day.month == 12 else (day.year, day.month + 1)
+        return _month_day(year, month, int(repeat.split(':')[1]))
     if repeat == 'weekdays':
         day += timedelta(days=1)
         return align(day, repeat)
@@ -52,6 +67,8 @@ def align(day: date, repeat: str | None) -> date:
 
 
 def repeat_label(repeat: str, day: date | None = None) -> str:
+    if repeat.startswith('monthly:'):
+        return f'har oy {repeat.split(":")[1]}-kuni'
     if repeat == 'weekdays':
         return 'ish kunlari'
     if repeat == 'weekly':
@@ -100,8 +117,10 @@ def _is_past(day: date, at: time | None, now: datetime) -> bool:
 
 
 def _parse_repeat(parts: list[str], now: datetime) -> Due:
-    """har kuni / har hafta / har dushanba / ish kunlari [+ vaqt]."""
+    """har kuni / har hafta / har dushanba / ish kunlari / har oy [5] [+ vaqt]."""
     today = now.date()
+    if parts[:2] == ['har', 'oy']:
+        return _parse_monthly(parts[2:], now)
     if parts[:2] == ['ish', 'kunlari']:
         repeat, day = 'weekdays', align(today, 'weekdays')
     elif len(parts) > 1 and parts[1] in WEEKDAYS:
@@ -116,6 +135,28 @@ def _parse_repeat(parts: list[str], now: datetime) -> Due:
     if len(parts) == 3 and at is None:
         raise DueParseError(FORMAT_HINT)
     while _is_past(day, at, now):  # bugungi vaqt o'tib ketgan — birinchisi keyingi takrorda
+        day = advance(day, repeat)
+    return Due(day, at, repeat)
+
+
+def _parse_monthly(rest: list[str], now: datetime) -> Due:
+    """har oy [5] [09:00] — kun yozilmasa, bugungi sana."""
+    today = now.date()
+    anchor = today.day
+    if rest and rest[0].isdigit():
+        anchor = int(rest.pop(0))
+        if not 1 <= anchor <= 31:
+            raise DueParseError(
+                "Oy kuni 1 dan 31 gacha bo'lsin. Masalan: <code>har oy 5 10:00</code>"
+            )
+    if len(rest) > 1:
+        raise DueParseError(FORMAT_HINT)
+    at = _parse_time(rest[0]) if rest else None
+    if rest and at is None:
+        raise DueParseError(FORMAT_HINT)
+    repeat = monthly(anchor)
+    day = _month_day(today.year, today.month, anchor)
+    while day < today or _is_past(day, at, now):
         day = advance(day, repeat)
     return Due(day, at, repeat)
 
@@ -185,7 +226,8 @@ FORMAT_HINT = (
     'Muddatni tushunmadim. Masalan:\n'
     '<code>ertaga</code>, <code>25.11</code>, <code>ertaga 15:00</code>, <code>18:30</code>, '
     '<code>dushanba 10:00</code>, <code>3 kundan keyin</code>, <code>2 soatdan keyin</code>, '
-    '<code>har kuni 09:00</code>, <code>har seshanba 08:30</code>, <code>ish kunlari 07:00</code>'
+    '<code>har kuni 09:00</code>, <code>har seshanba 08:30</code>, <code>ish kunlari 07:00</code>, '
+    '<code>har oy 5 10:00</code>'
 )
 
 

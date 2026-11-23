@@ -32,6 +32,7 @@ eng muhimi esa — **bot o'zi yozadi**, uni ochish shart emas:
 | Yozish uchun ko'p qadam | Bitta xabar kifoya: `Hisobot ertaga 15:00` — nom va muddat o'zi ajratiladi |
 | Har kimning kuni har xil boshlanadi | ⚙️ Sozlamalarda ertalabki reja soati (06:00–10:00) shaxsan tanlanadi |
 | Dars jadvali haftaning aniq kunlarida | `har seshanba 08:30`, `ish kunlari 07:00`, `dushanba 10:00`, `3 kundan keyin` |
+| Oylik to'lovlar (ijara, kredit, internet) | `har oy 5 10:00` — 🔁 har oyning 5-kunida; 31 yo'q oyda oxirgi kuni |
 | Imtihonga tayyorlanishga vaqt qolmaydi | 🔔 Oldindan ogohlantirish: 15 daqiqa / 1 soat / 1 kun oldin «⏳ qoldi» |
 | Muhim ish oddiylari orasida yo'qoladi | ⭐ Muhim — o'z bo'limida doim tepada |
 | Qancha ish qilganim sezilmaydi | 📈 Har yakshanba haftalik hisobot, 📊 da 🔥 ketma-ket kunlar |
@@ -43,8 +44,8 @@ eng muhimi esa — **bot o'zi yozadi**, uni ochish shart emas:
 
 - **Ikki xil eslatma — yetarli va sodda.** Vaqtli ish (uchrashuv, qo'ng'iroq) aniq vaqtda kerak;
   vaqtsiz ish (hisobot, uy ishi) esa shu kun ertalab ko'rinsa bas.
-- **Takrorlanish — faqat kunlik va haftalik.** Botni real ishlatganda eng ko'p kerak bo'lgani shu
-  ikkisi bo'ldi (odatlar). Takrorlanuvchi vazifa bitta yozuv bo'lib turadi; bajarilganda keyingi
+- **Takrorlanish — kunlik, haftalik va oylik.** Botni real ishlatganda eng ko'p kerak bo'lgani
+  odatlar (kunlik/haftalik) va oylik to'lovlar bo'ldi. Takrorlanuvchi vazifa bitta yozuv bo'lib turadi; bajarilganda keyingi
   sanasi bilan yangisi yaratiladi, shuning uchun bajarilganlar tarixi va statistika buzilmaydi.
   Bir necha kun o'tkazib yuborilsa ham keyingisi o'tmishda emas, kelajakda yaratiladi.
   Kategoriyalar, ustuvorlik, cron-ifodalar — bitta odamga ortiqcha murakkablik, qo'shilmadi.
@@ -87,7 +88,8 @@ eng muhimi esa — **bot o'zi yozadi**, uni ochish shart emas:
   ketma-ketlik va keyingi 7 kunga reja. Sozlamalarda o'chirish mumkin
 - **🗓 Kun nomlari va nisbiy vaqt** — `dushanba 10:00`, `3 kundan keyin [15:00]`,
   `2 soatdan keyin`, `30 daqiqadan keyin`; takrorlash: `har seshanba 08:30`,
-  `ish kunlari 07:00` (shanba-yakshanba o'tkaziladi). «Juma namozi» kabi nomlar buzilmaydi:
+  `ish kunlari 07:00` (shanba-yakshanba o'tkaziladi), `har oy 5 10:00` (oylik; 31-sana qisqa
+  oyda oxirgi kunga tushadi va keyingi oyda yana 31 ga qaytadi). «Juma namozi» kabi nomlar buzilmaydi:
   matn boshidagi yolg'iz kun nomi muddat deb olinmaydi
 - **🔔 Oldindan ogohlantirish** — sozlamalarda 15 daqiqa / 1 soat / 1 kun; asosiy eslatma
   baribir o'z vaqtida keladi, kechiktirilgan eslatma uchun qayta ogohlantirilmaydi

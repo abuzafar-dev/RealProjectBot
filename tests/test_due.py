@@ -76,7 +76,10 @@ def test_parse_repeat(text, expected):
     assert parse_due(text, NOW) == expected
 
 
-@pytest.mark.parametrize('text', ['har', 'har oy', 'har kuni ertalab', 'har kuni 09:00 x'])
+@pytest.mark.parametrize(
+    'text',
+    ['har', 'har kuni ertalab', 'har kuni 09:00 x', 'har oy 32', 'har oy 5 x', 'har oy 5 9 10'],
+)
 def test_parse_repeat_rejects(text):
     with pytest.raises(DueParseError):
         parse_due(text, NOW)
@@ -178,3 +181,39 @@ def test_format_weekly_shows_weekday():
     assert format_due(date(2026, 11, 24), time(8, 30), TODAY, 'weekly') == (
         '24.11 08:30 🔁 har seshanba'
     )
+
+
+@pytest.mark.parametrize(
+    ('text', 'expected'),
+    [
+        ('har oy', Due(TODAY, None, 'monthly:20')),
+        ('har oy 25', Due(date(2026, 11, 25), None, 'monthly:25')),
+        ('har oy 5 10:00', Due(date(2026, 12, 5), time(10, 0), 'monthly:5')),  # bu oyniki o'tgan
+        (
+            'har oy 20 09:00',
+            Due(date(2026, 12, 20), time(9, 0), 'monthly:20'),
+        ),  # bugun, vaqt o'tgan
+        ('har oy 31', Due(date(2026, 11, 30), None, 'monthly:31')),  # noyabrda 31 yo'q
+    ],
+)
+def test_parse_monthly(text, expected):
+    assert parse_due(text, NOW) == expected
+
+
+def test_monthly_keeps_original_day():
+    # 31-yanvar -> 28-fevral -> 31-mart: qisqa oydan keyin asl kunga qaytadi
+    later = datetime(2027, 1, 31, 12, 0)
+    day = next_occurrence(date(2027, 1, 31), None, 'monthly:31', later)
+    assert day == date(2027, 2, 28)
+    assert next_occurrence(day, None, 'monthly:31', later) == date(2027, 3, 31)
+    assert next_occurrence(date(2026, 12, 15), None, 'monthly:15', NOW) == date(2027, 1, 15)
+    assert (
+        format_due(date(2026, 12, 5), time(10, 0), TODAY, 'monthly:5')
+        == '05.12 10:00 🔁 har oy 5-kuni'
+    )
+
+
+def test_split_monthly():
+    title, due = split_title_due("Ijara to'lash har oy 5 10:00", NOW)
+    assert title == "Ijara to'lash"
+    assert due == Due(date(2026, 12, 5), time(10, 0), 'monthly:5')
